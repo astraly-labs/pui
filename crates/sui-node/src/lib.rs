@@ -223,6 +223,7 @@ use sui_core::{
 };
 use sui_types::execution_config_utils::to_binary_config;
 
+
 pub struct SuiNode {
     config: NodeConfig,
     validator_components: Mutex<Option<ValidatorComponents>>,
@@ -439,7 +440,7 @@ impl SuiNode {
 
         let run_with_range = config.run_with_range;
         let is_validator = config.consensus_config().is_some();
-        let is_full_node = !is_validator;
+        let is_node = !is_validator;
         let prometheus_registry = registry_service.default_registry();
 
         info!(node =? config.protocol_public_key(),
@@ -578,7 +579,7 @@ impl SuiNode {
             checkpoint_store.clone(),
         );
 
-        let index_store = if is_full_node && config.enable_index_processing {
+        let index_store = if is_node && config.enable_index_processing {
             info!("creating index store");
             Some(Arc::new(IndexStore::new(
                 config.db_path().join("indexes"),
@@ -593,7 +594,7 @@ impl SuiNode {
             None
         };
 
-        let rpc_index = if is_full_node && config.rpc().is_some_and(|rpc| rpc.enable_indexing()) {
+        let rpc_index = if is_node && config.rpc().is_some_and(|rpc| rpc.enable_indexing()) {
             Some(Arc::new(RpcIndexStore::new(
                 &config.db_path(),
                 &store,
@@ -753,7 +754,9 @@ impl SuiNode {
         let (end_of_epoch_channel, end_of_epoch_receiver) =
             broadcast::channel(config.end_of_epoch_broadcast_channel_capacity);
 
-        let transaction_orchestrator = if is_full_node && run_with_range.is_none() {
+        // TODO(sunfish): Check that - probably only for full nodes? For sparse node, we
+        // have just one validator & we verify
+        let transaction_orchestrator = if is_node && run_with_range.is_none() {
             Some(Arc::new(
                 TransactiondOrchestrator::new_with_auth_aggregator(
                     auth_agg.load_full(),
@@ -1559,10 +1562,11 @@ impl SuiNode {
     pub async fn monitor_reconfiguration(self: Arc<Self>) -> Result<()> {
         let checkpoint_executor_metrics =
             CheckpointExecutorMetrics::new(&self.registry_service.default_registry());
-
         loop {
             let mut accumulator_guard = self.accumulator.lock().await;
             let accumulator = accumulator_guard.take().unwrap();
+
+            // TODO(sunfish): Pass the sparse state config to the CheckpointExecutor
             let mut checkpoint_executor = CheckpointExecutor::new(
                 self.state_sync_handle.subscribe_to_synced_checkpoints(),
                 self.checkpoint_store.clone(),
@@ -1571,6 +1575,7 @@ impl SuiNode {
                 self.backpressure_manager.clone(),
                 self.config.checkpoint_executor_config.clone(),
                 checkpoint_executor_metrics.clone(),
+                self.config.sparse_state_config(),
             );
 
             let run_with_range = self.config.run_with_range;

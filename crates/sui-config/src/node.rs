@@ -155,6 +155,9 @@ pub struct NodeConfig {
     #[serde(default)]
     pub state_snapshot_write_config: StateSnapshotConfig,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sparse_state_config: Option<SparseStateConfig>,
+
     #[serde(default)]
     pub indexer_max_subscriptions: Option<usize>,
 
@@ -605,6 +608,10 @@ impl NodeConfig {
 
     pub fn consensus_config(&self) -> Option<&ConsensusConfig> {
         self.consensus_config.as_ref()
+    }
+
+    pub fn sparse_state_config(&self) -> Option<&SparseStateConfig> {
+        self.sparse_state_config.as_ref()
     }
 
     pub fn genesis(&self) -> Result<&genesis::Genesis> {
@@ -1306,6 +1313,16 @@ impl AuthorityKeyPairWithPath {
 pub struct StateDebugDumpConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dump_file_directory: Option<PathBuf>,
+}
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
+pub struct SparseStateConfig {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub addresses: Vec<SuiAddress>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub packages: Vec<SuiAddress>,
 }
 
 #[cfg(test)]

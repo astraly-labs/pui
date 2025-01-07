@@ -40,6 +40,9 @@ struct Args {
 
     #[clap(long, group = "exclusive")]
     run_with_range_checkpoint: Option<CheckpointSequenceNumber>,
+
+    #[clap(long, group = "exclusive", help = "Enable sparse mode")]
+    sparse: bool,
 }
 
 fn main() {

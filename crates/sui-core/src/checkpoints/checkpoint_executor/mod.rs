@@ -29,7 +29,7 @@ use either::Either;
 use futures::stream::FuturesOrdered;
 use itertools::izip;
 use mysten_metrics::spawn_monitored_task;
-use sui_config::node::{CheckpointExecutorConfig, RunWithRange};
+use sui_config::node::{CheckpointExecutorConfig, RunWithRange, SparseStateConfig};
 use sui_macros::{fail_point, fail_point_async};
 use sui_types::accumulator::Accumulator;
 use sui_types::crypto::RandomnessRound;
@@ -145,7 +145,8 @@ pub struct CheckpointExecutor {
     tx_manager: Arc<TransactionManager>,
     accumulator: Arc<StateAccumulator>,
     backpressure_manager: Arc<BackpressureManager>,
-    config: CheckpointExecutorConfig,
+    executor_config: CheckpointExecutorConfig,
+    sparse_state_config: Option<SparseStateConfig>,
     metrics: Arc<CheckpointExecutorMetrics>,
 }
 
@@ -156,7 +157,8 @@ impl CheckpointExecutor {
         state: Arc<AuthorityState>,
         accumulator: Arc<StateAccumulator>,
         backpressure_manager: Arc<BackpressureManager>,
-        config: CheckpointExecutorConfig,
+        executor_config: CheckpointExecutorConfig,
+        sparse_state_config: Option<SparseStateConfig>,
         metrics: Arc<CheckpointExecutorMetrics>,
     ) -> Self {
         Self {
@@ -168,7 +170,8 @@ impl CheckpointExecutor {
             tx_manager: state.transaction_manager().clone(),
             accumulator,
             backpressure_manager,
-            config,
+            executor_config,
+            sparse_state_config,
             metrics,
         }
     }
@@ -187,6 +190,7 @@ impl CheckpointExecutor {
             BackpressureManager::new_for_tests(),
             Default::default(),
             CheckpointExecutorMetrics::new_for_tests(),
+            None,
         )
     }
 
@@ -554,6 +558,7 @@ impl CheckpointExecutor {
                     local_execution_timeout_sec,
                     &metrics,
                     data_ingestion_dir.clone(),
+                    self.sparse_state_config,
                 )
                 .await
                 {
@@ -733,6 +738,7 @@ async fn execute_checkpoint(
     local_execution_timeout_sec: u64,
     metrics: &Arc<CheckpointExecutorMetrics>,
     data_ingestion_dir: Option<PathBuf>,
+    sparse_state_config: Option<SparseStateConfig>,
 ) -> SuiResult<(Vec<TransactionDigest>, Option<Accumulator>)> {
     debug!("Preparing checkpoint for execution",);
     let prepare_start = Instant::now();
@@ -743,6 +749,7 @@ async fn execute_checkpoint(
     //   get_unexecuted_transactions()
     // - Second, we execute all remaining transactions.
 
+    // TODO(sunfish): Filter and execute only the txs linked to the sparse state
     let (execution_digests, all_tx_digests, executable_txns, randomness_rounds) =
         get_unexecuted_transactions(
             checkpoint.clone(),
@@ -750,6 +757,18 @@ async fn execute_checkpoint(
             checkpoint_store.clone(),
             epoch_store.clone(),
         );
+
+    // Filter out any txs not present in the sparse config
+    if sparse_state_config.is_some() {
+        let (execution_digests, all_tx_digests, executable_txns, randomness_rounds) =
+            filter_out_unwanted_txs(
+                sparse_state_config.unwrap(),
+                execution_digests,
+                all_tx_digests,
+                executable_txns,
+                randomness_rounds,
+            );
+    }
 
     let tx_count = execution_digests.len();
     debug!("Number of transactions in the checkpoint: {:?}", tx_count);
@@ -1339,4 +1358,36 @@ async fn finalize_checkpoint(
         }
     }
     Ok(checkpoint_acc)
+}
+
+async fn filter_out_unwanted_txs(
+    sparse_state_config: SparseStateConfig,
+    mut execution_digests: Vec<ExecutionDigests>,
+    mut all_tx_digests: Vec<TransactionDigest>,
+    mut executable_txns: Vec<(VerifiedExecutableTransaction, TransactionEffectsDigest)>,
+    mut randomness_rounds: Vec<RandomnessRound>,
+) -> (
+    Vec<ExecutionDigests>,
+    Vec<TransactionDigest>,
+    Vec<(VerifiedExecutableTransaction, TransactionEffectsDigest)>,
+    Vec<RandomnessRound>,
+) {
+    assert!(
+        execution_digests.len() == all_tx_digests.len()
+            && all_tx_digests.len() == executable_txns.len()
+            && executable_txns.len() == randomness_rounds.len(),
+        "[SUNFISH] Not the same length?"
+    );
+
+    // TODO: Filter out the txs
+    // for i in 0..executable_txns.len() {
+    //     sparse_state_config.addresses.
+    // }
+
+    (
+        execution_digests,
+        all_tx_digests,
+        executable_txns,
+        randomness_rounds,
+    )
 }
