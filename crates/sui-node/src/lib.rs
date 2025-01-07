@@ -1574,8 +1574,8 @@ impl SuiNode {
                 accumulator.clone(),
                 self.backpressure_manager.clone(),
                 self.config.checkpoint_executor_config.clone(),
+                self.config.sparse_state_config().cloned(),
                 checkpoint_executor_metrics.clone(),
-                self.config.sparse_state_config(),
             );
 
             let run_with_range = self.config.run_with_range;
@@ -1654,7 +1654,7 @@ impl SuiNode {
             debug_assert!(!latest_system_state.safe_mode());
 
             if let Err(err) = self.end_of_epoch_channel.send(latest_system_state.clone()) {
-                if self.state.is_fullnode(&cur_epoch_store) {
+                if self.state.is_node(&cur_epoch_store) {
                     warn!(
                         "Failed to send end of epoch notification to subscriber: {:?}",
                         err

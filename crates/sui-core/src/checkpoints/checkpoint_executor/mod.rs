@@ -37,7 +37,7 @@ use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
 use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::inner_temporary_store::PackageStoreWithFallback;
 use sui_types::message_envelope::Message;
-use sui_types::transaction::{TransactionDataV1, TransactionKind};
+use sui_types::transaction::{TransactionData, TransactionKind};
 use sui_types::{
     base_types::{ExecutionDigests, TransactionDigest, TransactionEffectsDigest},
     messages_checkpoint::{CheckpointSequenceNumber, VerifiedCheckpoint},
@@ -189,8 +189,8 @@ impl CheckpointExecutor {
             accumulator,
             BackpressureManager::new_for_tests(),
             Default::default(),
-            CheckpointExecutorMetrics::new_for_tests(),
             None,
+            CheckpointExecutorMetrics::new_for_tests(),
         )
     }
 
@@ -480,7 +480,7 @@ impl CheckpointExecutor {
         };
 
         while *next_to_schedule <= *latest_synced_checkpoint.sequence_number()
-            && pending.len() < self.config.checkpoint_execution_max_concurrency
+            && pending.len() < self.executor_config.checkpoint_execution_max_concurrency
         {
             let checkpoint = self
                 .checkpoint_store
@@ -532,14 +532,15 @@ impl CheckpointExecutor {
         );
 
         let metrics = self.metrics.clone();
-        let local_execution_timeout_sec = self.config.local_execution_timeout_sec;
-        let data_ingestion_dir = self.config.data_ingestion_dir.clone();
+        let local_execution_timeout_sec = self.executor_config.local_execution_timeout_sec;
+        let data_ingestion_dir = self.executor_config.data_ingestion_dir.clone();
         let checkpoint_store = self.checkpoint_store.clone();
         let object_cache_reader = self.object_cache_reader.clone();
         let transaction_cache_reader = self.transaction_cache_reader.clone();
         let tx_manager = self.tx_manager.clone();
         let accumulator = self.accumulator.clone();
         let state = self.state.clone();
+        let sparse_state_config = self.sparse_state_config.clone();
 
         epoch_store.notify_synced_checkpoint(*checkpoint.sequence_number());
 
@@ -558,7 +559,7 @@ impl CheckpointExecutor {
                     local_execution_timeout_sec,
                     &metrics,
                     data_ingestion_dir.clone(),
-                    self.sparse_state_config,
+                    sparse_state_config.clone(),
                 )
                 .await
                 {
@@ -617,8 +618,8 @@ impl CheckpointExecutor {
             epoch_store.clone(),
             self.tx_manager.clone(),
             self.accumulator.clone(),
-            self.config.local_execution_timeout_sec,
-            self.config.data_ingestion_dir.clone(),
+            self.executor_config.local_execution_timeout_sec,
+            self.executor_config.data_ingestion_dir.clone(),
         )
         .await;
     }
@@ -695,7 +696,7 @@ impl CheckpointExecutor {
                         checkpoint.clone(),
                         self.accumulator.clone(),
                         effects,
-                        self.config.data_ingestion_dir.clone(),
+                        self.executor_config.data_ingestion_dir.clone(),
                     )
                     .await
                     .expect("Finalizing checkpoint cannot fail");
@@ -750,7 +751,7 @@ async fn execute_checkpoint(
     // - Second, we execute all remaining transactions.
 
     // TODO(sunfish): Filter and execute only the txs linked to the sparse state
-    let (execution_digests, all_tx_digests, executable_txns, randomness_rounds) =
+    let (execution_digests, all_tx_digests, mut executable_txns, randomness_rounds) =
         get_unexecuted_transactions(
             checkpoint.clone(),
             transaction_cache_reader,
@@ -760,11 +761,8 @@ async fn execute_checkpoint(
 
     // Filter out any txs not present in the sparse config
     if sparse_state_config.is_some() {
-        let executable_txns =
-            filter_out_unwanted_txs(
-                sparse_state_config.unwrap(),
-                executable_txns,
-            );
+        executable_txns =
+            filter_out_unwanted_txs(sparse_state_config.unwrap(), executable_txns);
     }
 
     let tx_count = execution_digests.len();
@@ -1359,32 +1357,19 @@ async fn finalize_checkpoint(
     Ok(checkpoint_acc)
 }
 
-async fn filter_out_unwanted_txs(
+fn filter_out_unwanted_txs(
     sparse_state_config: SparseStateConfig,
-    mut executable_txns: Vec<(VerifiedExecutableTransaction, TransactionEffectsDigest)>,
-) -> (
-    Vec<(VerifiedExecutableTransaction, TransactionEffectsDigest)>,
-) {
-    // TODO: Filter out the txs
-    // for i in 0..executable_txns.len() {
-    //     sparse_state_config.addresses.
-    // }
+    executable_txns: Vec<(VerifiedExecutableTransaction, TransactionEffectsDigest)>,
+) -> Vec<(VerifiedExecutableTransaction, TransactionEffectsDigest)> {
     executable_txns
-        .iter()
-        .map(|(tx, effect)| {
-            sparse_state_config
-                .addresses
-                .iter()
-                .any(|filtered_address| {
-                    let sender = match tx.intent_message().value {
-                        TransactionData::V1(d) => d.sender,
-                    };
-                    sender == filtered_address
-                })
+        .into_iter()
+        .filter(|(tx, _effect)| {
+            let sender = match tx.intent_message().value {
+                TransactionData::V1(ref d) => d.sender,
+            };
+            sparse_state_config.addresses.contains(&sender)
         })
-        .collect();
-
-    executable_txns
+        .collect()
 }
 
 fn check_elements<T: PartialEq>(arr: &[T], list: &[&[T]]) -> Vec<bool> {
