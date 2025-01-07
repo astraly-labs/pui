@@ -37,7 +37,7 @@ use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
 use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::inner_temporary_store::PackageStoreWithFallback;
 use sui_types::message_envelope::Message;
-use sui_types::transaction::TransactionKind;
+use sui_types::transaction::{TransactionDataV1, TransactionKind};
 use sui_types::{
     base_types::{ExecutionDigests, TransactionDigest, TransactionEffectsDigest},
     messages_checkpoint::{CheckpointSequenceNumber, VerifiedCheckpoint},
@@ -760,13 +760,10 @@ async fn execute_checkpoint(
 
     // Filter out any txs not present in the sparse config
     if sparse_state_config.is_some() {
-        let (execution_digests, all_tx_digests, executable_txns, randomness_rounds) =
+        let executable_txns =
             filter_out_unwanted_txs(
                 sparse_state_config.unwrap(),
-                execution_digests,
-                all_tx_digests,
                 executable_txns,
-                randomness_rounds,
             );
     }
 
@@ -1027,6 +1024,7 @@ fn extract_end_of_epoch_tx(
 // Given a checkpoint, filter out any already executed transactions, then return the remaining
 // execution digests, transaction digests, transactions to be executed, and randomness rounds
 // (if any) included in the checkpoint.
+// TODO(sunfish): important function!
 #[allow(clippy::type_complexity)]
 fn get_unexecuted_transactions(
     checkpoint: VerifiedCheckpoint,
@@ -1203,6 +1201,7 @@ fn get_unexecuted_transactions(
 
 // Logs within the function are annotated with the checkpoint sequence number and epoch,
 // from schedule_checkpoint().
+// TODO(sunfish): Important function!
 #[instrument(level = "debug", skip_all)]
 async fn execute_transactions(
     execution_digests: Vec<ExecutionDigests>,
@@ -1362,32 +1361,34 @@ async fn finalize_checkpoint(
 
 async fn filter_out_unwanted_txs(
     sparse_state_config: SparseStateConfig,
-    mut execution_digests: Vec<ExecutionDigests>,
-    mut all_tx_digests: Vec<TransactionDigest>,
     mut executable_txns: Vec<(VerifiedExecutableTransaction, TransactionEffectsDigest)>,
-    mut randomness_rounds: Vec<RandomnessRound>,
 ) -> (
-    Vec<ExecutionDigests>,
-    Vec<TransactionDigest>,
     Vec<(VerifiedExecutableTransaction, TransactionEffectsDigest)>,
-    Vec<RandomnessRound>,
 ) {
-    assert!(
-        execution_digests.len() == all_tx_digests.len()
-            && all_tx_digests.len() == executable_txns.len()
-            && executable_txns.len() == randomness_rounds.len(),
-        "[SUNFISH] Not the same length?"
-    );
-
     // TODO: Filter out the txs
     // for i in 0..executable_txns.len() {
     //     sparse_state_config.addresses.
     // }
+    executable_txns
+        .iter()
+        .map(|(tx, effect)| {
+            sparse_state_config
+                .addresses
+                .iter()
+                .any(|filtered_address| {
+                    let sender = match tx.intent_message().value {
+                        TransactionData::V1(d) => d.sender,
+                    };
+                    sender == filtered_address
+                })
+        })
+        .collect();
 
-    (
-        execution_digests,
-        all_tx_digests,
-        executable_txns,
-        randomness_rounds,
-    )
+    executable_txns
+}
+
+fn check_elements<T: PartialEq>(arr: &[T], list: &[&[T]]) -> Vec<bool> {
+    arr.iter()
+        .map(|x| list.iter().any(|l| l.contains(x)))
+        .collect()
 }
