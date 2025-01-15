@@ -1317,12 +1317,12 @@ pub struct StateDebugDumpConfig {
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub struct SparseStateConfig {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub addresses: Vec<SuiAddress>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub events: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub packages: Vec<SuiAddress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub addresses: Option<Vec<SuiAddress>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packages: Option<Vec<SuiAddress>>,
 }
 
 #[cfg(test)]

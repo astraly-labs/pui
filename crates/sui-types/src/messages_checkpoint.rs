@@ -3,7 +3,7 @@
 
 use crate::accumulator::Accumulator;
 use crate::base_types::{
-    random_object_ref, ExecutionData, ExecutionDigests, VerifiedExecutionData,
+    random_object_ref, ExecutionData, ExecutionDigests, SuiAddress, VerifiedExecutionData,
 };
 use crate::committee::{EpochId, ProtocolVersion, StakeUnit};
 use crate::crypto::{
@@ -20,10 +20,12 @@ use crate::storage::ReadStore;
 use crate::sui_serde::AsProtocolVersion;
 use crate::sui_serde::BigInt;
 use crate::sui_serde::Readable;
+use crate::transaction::TransactionKind;
 use crate::transaction::{Transaction, TransactionData};
 use crate::{base_types::AuthorityName, committee::Committee, error::SuiError};
 use anyhow::Result;
 use fastcrypto::hash::MultisetHash;
+use im::HashSet;
 use mysten_metrics::histogram::Histogram as MystenHistogram;
 use once_cell::sync::OnceCell;
 use prometheus::Histogram;
@@ -674,6 +676,49 @@ impl FullCheckpointContents {
             effects,
         };
         FullCheckpointContents::new_with_causally_ordered_transactions(vec![exe_data])
+    }
+
+    pub fn filter_by_addresses(
+        &mut self,
+        addresses: &[SuiAddress],
+    ) -> (Option<Self>, Vec<ExecutionDigests>) {
+        let addresses_set: HashSet<SuiAddress> = addresses.iter().cloned().collect();
+
+        let mut filtered_out_digests: Vec<ExecutionDigests> = vec![];
+        let mut filtered_transactions = Vec::new();
+        let mut filtered_signatures = Vec::new();
+
+        for (idx, tx) in self.transactions.iter().enumerate() {
+            let (sender, kind) = match tx.transaction.data().intent_message().value {
+                TransactionData::V1(ref d) => (d.sender, &d.kind),
+            };
+
+            match kind {
+                TransactionKind::ProgrammableTransaction(_) => {
+                    // For programmable transactions, check if sender is in the allowed addresses
+                    if addresses_set.contains(&sender) {
+                        filtered_transactions.push(tx.clone());
+                        filtered_signatures.push(self.user_signatures[idx].clone());
+                    } else {
+                        filtered_out_digests.push(tx.digests());
+                    }
+                }
+                // For other transaction types, always include them
+                _ => {
+                    filtered_transactions.push(tx.clone());
+                    filtered_signatures.push(self.user_signatures[idx].clone());
+                }
+            };
+        }
+
+        // TODO: Don't return Option<Self>, just mutate in place Self and return filtered out digests
+        (
+            Some(Self {
+                transactions: filtered_transactions,
+                user_signatures: filtered_signatures,
+            }),
+            filtered_out_digests,
+        )
     }
 }
 

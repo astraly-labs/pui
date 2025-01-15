@@ -32,12 +32,14 @@ use mysten_metrics::spawn_monitored_task;
 use sui_config::node::{CheckpointExecutorConfig, RunWithRange, SparseStateConfig};
 use sui_macros::{fail_point, fail_point_async};
 use sui_types::accumulator::Accumulator;
+use sui_types::base_types::ExecutionData;
 use sui_types::crypto::RandomnessRound;
 use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
 use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::inner_temporary_store::PackageStoreWithFallback;
 use sui_types::message_envelope::Message;
-use sui_types::transaction::{TransactionData, TransactionKind};
+use sui_types::messages_checkpoint::{CheckpointContents, FullCheckpointContents};
+use sui_types::transaction::TransactionKind;
 use sui_types::{
     base_types::{ExecutionDigests, TransactionDigest, TransactionEffectsDigest},
     messages_checkpoint::{CheckpointSequenceNumber, VerifiedCheckpoint},
@@ -743,7 +745,6 @@ async fn execute_checkpoint(
 ) -> SuiResult<(Vec<TransactionDigest>, Option<Accumulator>)> {
     debug!("Preparing checkpoint for execution",);
     let prepare_start = Instant::now();
-
     // this function must guarantee that all transactions in the checkpoint are executed before it
     // returns. This invariant is enforced in two phases:
     // - First, we filter out any already executed transactions from the checkpoint in
@@ -751,22 +752,19 @@ async fn execute_checkpoint(
     // - Second, we execute all remaining transactions.
 
     // TODO(sunfish): Filter and execute only the txs linked to the sparse state
-    let (execution_digests, all_tx_digests, mut executable_txns, randomness_rounds) =
+    let (execution_digests, all_tx_digests, executable_txns, randomness_rounds) =
         get_unexecuted_transactions(
             checkpoint.clone(),
             transaction_cache_reader,
             checkpoint_store.clone(),
             epoch_store.clone(),
+            sparse_state_config,
         );
 
-    // Filter out any txs not present in the sparse config
-    if sparse_state_config.is_some() {
-        executable_txns =
-            filter_out_unwanted_txs(sparse_state_config.unwrap(), executable_txns);
-    }
-
     let tx_count = execution_digests.len();
-    debug!("Number of transactions in the checkpoint: {:?}", tx_count);
+
+    info!("Number of transactions in the checkpoint: {:?}", tx_count);
+
     metrics
         .checkpoint_transaction_count
         .observe(tx_count as f64);
@@ -1029,6 +1027,7 @@ fn get_unexecuted_transactions(
     cache_reader: &dyn TransactionCacheRead,
     checkpoint_store: Arc<CheckpointStore>,
     epoch_store: Arc<AuthorityPerEpochStore>,
+    sparse_state_config: Option<SparseStateConfig>,
 ) -> (
     Vec<ExecutionDigests>,
     Vec<TransactionDigest>,
@@ -1036,7 +1035,8 @@ fn get_unexecuted_transactions(
     Vec<RandomnessRound>,
 ) {
     let checkpoint_sequence = checkpoint.sequence_number();
-    let full_contents = checkpoint_store
+
+    let mut full_checkpoint_contents: Option<FullCheckpointContents> = checkpoint_store
         .get_full_checkpoint_contents_by_sequence_number(*checkpoint_sequence)
         .expect("Failed to get checkpoint contents from store")
         .tap_some(|_| {
@@ -1054,7 +1054,24 @@ fn get_unexecuted_transactions(
         })
         .into_inner();
 
-    let full_contents_txns = full_contents.map(|c| {
+    // NOTE: full_contents seems to be None for end of epoch txs
+    if full_checkpoint_contents.is_some() {
+    // TODO(sunfish): Here, we have to filter out some txs.
+    // NOTE: We need to keep txs with sender == ZERO
+        if let Some(sparse_state_config) = sparse_state_config {
+            let removed_digests;
+            
+            // TODO(sunfish): This should be done really better. We currently only filter by sender.
+            (full_checkpoint_contents, removed_digests) =
+                full_checkpoint_contents
+                    .unwrap()
+                    .filter_by_addresses(&sparse_state_config.addresses.unwrap());
+
+            execution_digests.retain(|x| !removed_digests.contains(x));
+        }
+    }
+
+    let full_contents_txns: Option<HashMap<TransactionDigest, ExecutionData>> = full_checkpoint_contents.map(|c| {
         c.into_iter()
             .zip(execution_digests.iter())
             .map(|(txn, digests)| (digests.transaction, txn))
@@ -1355,25 +1372,4 @@ async fn finalize_checkpoint(
         }
     }
     Ok(checkpoint_acc)
-}
-
-fn filter_out_unwanted_txs(
-    sparse_state_config: SparseStateConfig,
-    executable_txns: Vec<(VerifiedExecutableTransaction, TransactionEffectsDigest)>,
-) -> Vec<(VerifiedExecutableTransaction, TransactionEffectsDigest)> {
-    executable_txns
-        .into_iter()
-        .filter(|(tx, _effect)| {
-            let sender = match tx.intent_message().value {
-                TransactionData::V1(ref d) => d.sender,
-            };
-            sparse_state_config.addresses.contains(&sender)
-        })
-        .collect()
-}
-
-fn check_elements<T: PartialEq>(arr: &[T], list: &[&[T]]) -> Vec<bool> {
-    arr.iter()
-        .map(|x| list.iter().any(|l| l.contains(x)))
-        .collect()
 }
