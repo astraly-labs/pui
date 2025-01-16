@@ -34,6 +34,7 @@ use sui_macros::{fail_point, fail_point_async};
 use sui_types::accumulator::Accumulator;
 use sui_types::base_types::ExecutionData;
 use sui_types::crypto::RandomnessRound;
+use sui_types::digests::TransactionEventsDigest;
 use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
 use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::inner_temporary_store::PackageStoreWithFallback;
@@ -1054,29 +1055,52 @@ fn get_unexecuted_transactions(
         })
         .into_inner();
 
-    // NOTE: full_contents seems to be None for end of epoch txs
-    if full_checkpoint_contents.is_some() {
-    // TODO(sunfish): Here, we have to filter out some txs.
-    // NOTE: We need to keep txs with sender == ZERO
-        if let Some(sparse_state_config) = sparse_state_config {
-            let removed_digests;
-            
-            // TODO(sunfish): This should be done really better. We currently only filter by sender.
-            (full_checkpoint_contents, removed_digests) =
-                full_checkpoint_contents
-                    .unwrap()
-                    .filter_by_addresses(&sparse_state_config.addresses.unwrap());
+    // Filter by events
 
-            execution_digests.retain(|x| !removed_digests.contains(x));
+    // NOTE: full_contents seems to be None for end of epoch txs
+    // NOTE: full_contents seems to be None for end of epoch txs
+    if let Some(mut full_contents) = full_checkpoint_contents {
+        // TODO(sunfish): Here, we have to filter out some txs.
+        // NOTE: We need to keep txs with sender == ZERO
+        if let Some(sparse_state_config) = sparse_state_config {
+            if let Some(addresses) = sparse_state_config.addresses {
+                let (filtered_contents, removed_digests) =
+                    full_contents.filter_by_addresses(&addresses);
+
+                // Update full_checkpoint_contents and execution_digests
+                full_contents = filtered_contents.unwrap_or(full_contents);
+                execution_digests.retain(|x| !removed_digests.contains(x));
+            }
+            if let Some(events) = sparse_state_config.events {
+                // First we build the digest out of the configuration events
+                let event_digests = events
+                    .iter()
+                    .map(|event| {
+                        let event_digest: TransactionEventsDigest =
+                            event.parse().expect("Invalid event digest");
+                        event_digest
+                    })
+                    .collect();
+
+                // Then we filter out events that are not in the configuration
+                let (filtered_contents, removed_digests) =
+                    full_contents.filter_by_events(&event_digests);
+
+                // Update full_checkpoint_contents and execution_digests
+                full_contents = filtered_contents.unwrap_or(full_contents);
+                execution_digests.retain(|x| !removed_digests.contains(x));
+            }
         }
+        full_checkpoint_contents = Some(full_contents);
     }
 
-    let full_contents_txns: Option<HashMap<TransactionDigest, ExecutionData>> = full_checkpoint_contents.map(|c| {
-        c.into_iter()
-            .zip(execution_digests.iter())
-            .map(|(txn, digests)| (digests.transaction, txn))
-            .collect::<HashMap<_, _>>()
-    });
+    let full_contents_txns: Option<HashMap<TransactionDigest, ExecutionData>> =
+        full_checkpoint_contents.map(|c| {
+            c.into_iter()
+                .zip(execution_digests.iter())
+                .map(|(txn, digests)| (digests.transaction, txn))
+                .collect::<HashMap<_, _>>()
+        });
 
     // Remove the change epoch transaction so that we can special case its execution.
     checkpoint.end_of_epoch_data.as_ref().tap_some(|_| {
