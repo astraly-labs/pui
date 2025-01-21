@@ -1,12 +1,18 @@
-use std::{collections::{BTreeMap, HashMap, HashSet}, time::Duration};
 use futures::StreamExt;
 use libp2p::{
-    identify, identity::Keypair, kad::{self, store::MemoryStore}, multiaddr::Protocol, swarm::{NetworkBehaviour, SwarmEvent}, Multiaddr, PeerId, StreamProtocol, SwarmBuilder
+    identify,
+    identity::Keypair,
+    kad::{self, store::MemoryStore},
+    multiaddr::Protocol,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    Multiaddr, PeerId, StreamProtocol,
 };
-use libp2p_gossipsub::{
-    self, IdentTopic, MessageAuthenticity,
-};
+use libp2p_gossipsub::{self, IdentTopic, MessageAuthenticity};
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    time::Duration,
+};
 use sui_types::messages_checkpoint::CheckpointSequenceNumber;
 use tokio::sync::mpsc;
 
@@ -19,7 +25,10 @@ const TCP_PORT: u16 = 1123;
 /// Runs the P2P node and returns the handle (used to broadcast price to the network
 /// or stop the P2P node) along with the receiver of the consensus prices, mainly used
 /// in the API so we can update the price of the asset.
-pub async fn start_p2p() -> anyhow::Result<(P2PBroadcaster, mpsc::Receiver<(MedianPrice, Vec<SignedData<MedianPrice>>)>)> {
+pub async fn start_p2p() -> anyhow::Result<(
+    P2PBroadcaster,
+    mpsc::Receiver<(MedianPrice, Vec<SignedData<MedianPrice>>)>,
+)> {
     let (consensus_tx, consensus_rx) = mpsc::channel(1024);
     let (mut node, command_tx) = P2PNode::new(consensus_tx, P2pConfig::default()).await?;
     tracing::info!("[Oracle ExEx] 👤 Joined the Oracle P2P network");
@@ -139,7 +148,10 @@ impl P2PNode {
     }
 
     pub async fn run(&mut self) {
-        let multi_addr = "/ip4/0.0.0.0".parse::<Multiaddr>().unwrap().with(Protocol::Tcp(TCP_PORT));
+        let multi_addr = "/ip4/0.0.0.0"
+            .parse::<Multiaddr>()
+            .unwrap()
+            .with(Protocol::Tcp(TCP_PORT));
         self.swarm.listen_on(multi_addr).unwrap();
 
         for addr in &self.config.bootstrap_nodes {
@@ -163,13 +175,18 @@ impl P2PNode {
     async fn handle_swarm_event(&mut self, event: SwarmEvent<OracleP2PBehaviourEvent>) {
         match event {
             SwarmEvent::Behaviour(behaviour) => match behaviour {
-                OracleP2PBehaviourEvent::Gossipsub(libp2p_gossipsub::Event::Message { message, .. }) => {
+                OracleP2PBehaviourEvent::Gossipsub(libp2p_gossipsub::Event::Message {
+                    message,
+                    ..
+                }) => {
                     if let Err(e) = self.handle_p2p_message(message).await {
                         tracing::error!(%e, "[Oracle ExEx] Failed to handle gossip message");
                     }
                 }
                 OracleP2PBehaviourEvent::Identify(identify::Event::Received {
-                    peer_id, info, ..
+                    peer_id,
+                    info,
+                    ..
                 }) => {
                     if info
                         .protocols
@@ -189,7 +206,10 @@ impl P2PNode {
         }
     }
 
-    async fn handle_p2p_message(&mut self, message: libp2p_gossipsub::Message) -> anyhow::Result<()> {
+    async fn handle_p2p_message(
+        &mut self,
+        message: libp2p_gossipsub::Message,
+    ) -> anyhow::Result<()> {
         let price: SignedData<MedianPrice> = bcs::from_bytes(&message.data)?;
         // TODO: Assert that the price was correctly signed by the peer
         self.add_price(price).await?;
@@ -302,7 +322,14 @@ impl NetworkPricesPerCheckpoint {
                 timestamp: checkpoint_data.get_latest_timestamp(),
                 checkpoint: Some(signed_price.checkpoint),
             };
-            let peers_data: Vec<SignedData<MedianPrice>> = self.0.get_mut(&signed_price.checkpoint).unwrap().peer_prices.iter().map(|(_, v)| v.clone()).collect();
+            let peers_data: Vec<SignedData<MedianPrice>> = self
+                .0
+                .get_mut(&signed_price.checkpoint)
+                .unwrap()
+                .peer_prices
+                .iter()
+                .map(|(_, v)| v.clone())
+                .collect();
             self.cleanup_old_checkpoints(signed_price.checkpoint);
             Some((consensus_price, peers_data))
         } else {
