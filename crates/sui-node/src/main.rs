@@ -72,6 +72,7 @@ fn main() {
     };
 
     let runtimes = SuiRuntimes::new(&config);
+
     let metrics_rt = runtimes.metrics.enter();
     let registry_service = mysten_metrics::start_prometheus_server(config.metrics_address);
     let prometheus_registry = registry_service.default_registry();

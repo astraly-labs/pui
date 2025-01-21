@@ -1457,7 +1457,7 @@ impl AuthorityState {
             if let Some(err) = &execution_error_opt {
                 debug_fatal!("Authenticator state update failed: {:?}", err);
             }
-            epoch_store.update_authenticator_state(auth_state);
+            epoch_store.update_authenticator_state(&auth_state);
 
             // double check that the signature verifier always matches the authenticator state
             if cfg!(debug_assertions) {

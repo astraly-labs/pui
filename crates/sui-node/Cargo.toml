@@ -20,7 +20,7 @@ bcs.workspace = true
 clap.workspace = true
 consensus-core.workspace = true
 prometheus.workspace = true
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["full", "tracing"] }
 tracing.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
@@ -46,6 +46,7 @@ sui-protocol-config.workspace = true
 sui-snapshot.workspace = true
 sui-telemetry.workspace = true
 sui-types.workspace = true
+sui-exex.workspace = true
 mysten-metrics.workspace = true
 mysten-service.workspace = true
 mysten-common.workspace = true
@@ -55,6 +56,22 @@ telemetry-subscribers.workspace = true
 fastcrypto.workspace = true
 fastcrypto-zkp.workspace = true
 move-vm-profiler.workspace = true
+move-core-types.workspace = true
+serde_json.workspace = true
+
+# Specifics for the Oracle ExEx
+tower-http = { version = "0.6.1", features = ["cors"] }
+libp2p = { version = "0.54.1", features = [
+    "tokio",
+    "tcp",
+    "mdns",
+    "yamux",
+    "identify",
+    "macros",
+    "quic",
+]}
+libp2p-gossipsub = { version = "0.47.0" }
+async-trait = "0.1.83"
 sui-http.workspace = true
 
 [target.'cfg(msim)'.dependencies]
