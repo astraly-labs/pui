@@ -1,16 +1,11 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{collections::{BTreeMap, HashMap, HashSet}, time::Duration};
 
-use anyhow::Result;
 use futures::StreamExt;
 use libp2p::{
-    identify,
-    identity::Keypair,
-    mdns,
-    swarm::{NetworkBehaviour, SwarmEvent},
-    PeerId, SwarmBuilder,
+    identify, identity::Keypair, kad::{self, store::MemoryStore}, mdns, swarm::{NetworkBehaviour, SwarmEvent}, PeerId, StreamProtocol, SwarmBuilder
 };
 use libp2p_gossipsub::{
-    self, Behaviour as Gossipsub, Event as GossipsubEvent, IdentTopic, MessageAuthenticity,
+    self, IdentTopic, MessageAuthenticity,
 };
 use serde::{Deserialize, Serialize};
 use sui_types::messages_checkpoint::CheckpointSequenceNumber;
@@ -24,7 +19,7 @@ const ORACLE_TOPIC: &str = "pragma/defi_protocol_name";
 /// Runs the P2P node and returns the handle (used to broadcast price to the network
 /// or stop the P2P node) along with the receiver of the consensus prices, mainly used
 /// in the API so we can update the price of the asset.
-pub async fn start_p2p() -> Result<(P2PBroadcaster, mpsc::Receiver<(MedianPrice, Vec<SignedData<MedianPrice>>)>)> {
+pub async fn start_p2p() -> anyhow::Result<(P2PBroadcaster, mpsc::Receiver<(MedianPrice, Vec<SignedData<MedianPrice>>)>)> {
     let (consensus_tx, consensus_rx) = mpsc::channel(1024);
     let (mut node, command_tx) = P2PNode::new(consensus_tx).await?;
     tracing::info!("[Oracle ExEx] 👤 Joined the Oracle P2P network");
@@ -39,23 +34,15 @@ pub type BroadcastedPrice = (MedianPrice, u64);
 pub struct P2PBroadcaster(mpsc::UnboundedSender<BroadcastedPrice>);
 
 impl P2PBroadcaster {
-    pub async fn broadcast(&self, price: MedianPrice, checkpoint: u64) -> Result<()> {
+    pub async fn broadcast(&self, price: MedianPrice, checkpoint: u64) -> anyhow::Result<()> {
         self.0
             .send((price, checkpoint))
             .map_err(|e| anyhow::anyhow!("Failed to send broadcast to P2P: {}", e))?;
         Ok(())
     }
 }
-
-#[derive(NetworkBehaviour)]
-struct OracleBehaviour {
-    gossipsub: Gossipsub,
-    mdns: mdns::tokio::Behaviour,
-    identify: identify::Behaviour,
-}
-
 pub struct P2PNode {
-    swarm: libp2p::Swarm<OracleBehaviour>,
+    swarm: libp2p::Swarm<OracleP2PBehaviour>,
     /// Topic where the P2P nodes will communicate their signed prices.
     oracle_topic: IdentTopic,
     /// Keypair of the current node. Used to sign prices.
@@ -70,39 +57,61 @@ pub struct P2PNode {
     peers: HashSet<PeerId>,
 }
 
+#[derive(NetworkBehaviour)]
+struct OracleP2PBehaviour {
+    gossipsub: libp2p_gossipsub::Behaviour,
+    kademlia: libp2p::kad::Behaviour<MemoryStore>,
+    identify: identify::Behaviour,
+}
+
+impl OracleP2PBehaviour {
+    fn new(local_peer_id: PeerId, local_keypair: Keypair) -> anyhow::Result<Self> {
+        Ok(Self {
+            identify: identify::Behaviour::new(
+                identify::Config::new(identify::PROTOCOL_NAME.to_string(), local_keypair.public())
+                    .with_agent_version(format!("pragma/{}", env!("CARGO_PKG_VERSION"))),
+            ),
+            kademlia: {
+                let protocol = StreamProtocol::try_from_owned("oracle_test_0".into())
+                    .expect("Invalid kad stream protocol");
+                let mut cfg = kad::Config::new(protocol);
+                const PROVIDER_PUBLICATION_INTERVAL: Duration = Duration::from_secs(600);
+                cfg.set_record_ttl(Some(Duration::from_secs(0)));
+                cfg.set_provider_record_ttl(Some(PROVIDER_PUBLICATION_INTERVAL * 3));
+                cfg.set_provider_publication_interval(Some(PROVIDER_PUBLICATION_INTERVAL));
+                cfg.set_periodic_bootstrap_interval(Some(Duration::from_millis(500)));
+                cfg.set_query_timeout(Duration::from_secs(5 * 60));
+                kad::Behaviour::with_config(local_peer_id, MemoryStore::new(local_peer_id), cfg)
+            },
+            gossipsub: {
+                let privacy = MessageAuthenticity::Signed(local_keypair.clone());
+                libp2p_gossipsub::Behaviour::new(privacy, libp2p_gossipsub::Config::default())
+                    .map_err(|err| anyhow::anyhow!("Error making gossipsub config: {err}"))?
+            },
+        })
+    }
+}
+
 impl P2PNode {
     pub async fn new(
         quorum_sender: mpsc::Sender<(MedianPrice, Vec<SignedData<MedianPrice>>)>,
-    ) -> Result<(Self, mpsc::UnboundedSender<BroadcastedPrice>)> {
+    ) -> anyhow::Result<(Self, mpsc::UnboundedSender<BroadcastedPrice>)> {
         let keypair = Keypair::generate_ed25519();
         let peer_id = PeerId::from(keypair.public());
 
-        let mut swarm = SwarmBuilder::with_existing_identity(keypair.clone())
+        let mut swarm = libp2p::SwarmBuilder::with_new_identity()
             .with_tokio()
-            .with_quic()
-            .with_behaviour(|_| {
-                let gossipsub_config = libp2p_gossipsub::ConfigBuilder::default().build()?;
-                let gossipsub = Gossipsub::new(
-                    MessageAuthenticity::Signed(keypair.clone()),
-                    gossipsub_config,
-                )?;
-
-                let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
-
-                let identify = identify::Behaviour::new(identify::Config::new(
-                    PROTOCOL_VERSION.to_string(),
-                    keypair.public(),
-                ));
-
-                Ok(OracleBehaviour {
-                    gossipsub,
-                    mdns,
-                    identify,
-                })
-            })?
+            .with_tcp(
+                Default::default(),
+                // support tls and noise
+                (libp2p::tls::Config::new, libp2p::noise::Config::new),
+                // multiplexing protocol (yamux)
+                libp2p::yamux::Config::default,
+            )
+            .unwrap()
+            .with_behaviour(|identity| OracleP2PBehaviour::new(peer_id, identity.clone()).unwrap())
+            .unwrap()
             .build();
-        swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
-        swarm.listen_on("/ip4/127.0.0.1/udp/0/quic-v1".parse()?)?;
 
         let oracle_topic = libp2p_gossipsub::IdentTopic::new(ORACLE_TOPIC);
         swarm.behaviour_mut().gossipsub.subscribe(&oracle_topic)?;
@@ -134,33 +143,15 @@ impl P2PNode {
         }
     }
 
-    async fn handle_swarm_event(&mut self, event: SwarmEvent<OracleBehaviourEvent>) {
+    async fn handle_swarm_event(&mut self, event: SwarmEvent<OracleP2PBehaviourEvent>) {
         match event {
             SwarmEvent::Behaviour(behaviour) => match behaviour {
-                OracleBehaviourEvent::Gossipsub(GossipsubEvent::Message { message, .. }) => {
+                OracleP2PBehaviourEvent::Gossipsub(libp2p_gossipsub::Event::Message { message, .. }) => {
                     if let Err(e) = self.handle_p2p_message(message).await {
                         tracing::error!(%e, "[Oracle ExEx] Failed to handle gossip message");
                     }
                 }
-                OracleBehaviourEvent::Mdns(mdns::Event::Discovered(peers)) => {
-                    for (peer_id, _) in peers {
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .add_explicit_peer(&peer_id);
-                        self.peers.insert(peer_id);
-                    }
-                }
-                OracleBehaviourEvent::Mdns(mdns::Event::Expired(peers)) => {
-                    for (peer_id, _) in peers {
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .remove_explicit_peer(&peer_id);
-                        self.peers.remove(&peer_id);
-                    }
-                }
-                OracleBehaviourEvent::Identify(identify::Event::Received {
+                OracleP2PBehaviourEvent::Identify(identify::Event::Received {
                     peer_id, info, ..
                 }) => {
                     if info
@@ -181,14 +172,14 @@ impl P2PNode {
         }
     }
 
-    async fn handle_p2p_message(&mut self, message: libp2p_gossipsub::Message) -> Result<()> {
+    async fn handle_p2p_message(&mut self, message: libp2p_gossipsub::Message) -> anyhow::Result<()> {
         let price: SignedData<MedianPrice> = bcs::from_bytes(&message.data)?;
         // TODO: Assert that the price was correctly signed by the peer
         self.add_price(price).await?;
         Ok(())
     }
 
-    async fn broadcast_price(&mut self, price: MedianPrice, checkpoint: u64) -> Result<()> {
+    async fn broadcast_price(&mut self, price: MedianPrice, checkpoint: u64) -> anyhow::Result<()> {
         let signed_price = SignedData::new(&self.keypair, &price, checkpoint)?;
         self.add_price(signed_price.clone()).await?;
         if self.peers.is_empty() {
@@ -323,7 +314,7 @@ pub struct SignedData<T: Serialize> {
 }
 
 impl<T: Serialize> SignedData<T> {
-    pub fn new(signer: &Keypair, data: &T, checkpoint: u64) -> Result<SignedData<T>>
+    pub fn new(signer: &Keypair, data: &T, checkpoint: u64) -> anyhow::Result<SignedData<T>>
     where
         T: Serialize + Clone,
     {
