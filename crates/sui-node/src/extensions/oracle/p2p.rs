@@ -1,8 +1,7 @@
 use std::{collections::{BTreeMap, HashMap, HashSet}, time::Duration};
-
 use futures::StreamExt;
 use libp2p::{
-    identify, identity::Keypair, kad::{self, store::MemoryStore}, mdns, swarm::{NetworkBehaviour, SwarmEvent}, PeerId, StreamProtocol, SwarmBuilder
+    identify, identity::Keypair, kad::{self, store::MemoryStore}, multiaddr::Protocol, swarm::{NetworkBehaviour, SwarmEvent}, Multiaddr, PeerId, StreamProtocol, SwarmBuilder
 };
 use libp2p_gossipsub::{
     self, IdentTopic, MessageAuthenticity,
@@ -15,13 +14,14 @@ use super::MedianPrice;
 
 const PROTOCOL_VERSION: &str = "pragma/1.0.0";
 const ORACLE_TOPIC: &str = "pragma/defi_protocol_name";
+const TCP_PORT: u16 = 1123;
 
 /// Runs the P2P node and returns the handle (used to broadcast price to the network
 /// or stop the P2P node) along with the receiver of the consensus prices, mainly used
 /// in the API so we can update the price of the asset.
 pub async fn start_p2p() -> anyhow::Result<(P2PBroadcaster, mpsc::Receiver<(MedianPrice, Vec<SignedData<MedianPrice>>)>)> {
     let (consensus_tx, consensus_rx) = mpsc::channel(1024);
-    let (mut node, command_tx) = P2PNode::new(consensus_tx).await?;
+    let (mut node, command_tx) = P2PNode::new(consensus_tx, P2pConfig::default()).await?;
     tracing::info!("[Oracle ExEx] 👤 Joined the Oracle P2P network");
     let handle = P2PBroadcaster(command_tx);
     tokio::spawn(async move { node.run().await });
@@ -41,6 +41,11 @@ impl P2PBroadcaster {
         Ok(())
     }
 }
+
+#[derive(Debug, Default, Clone)]
+pub struct P2pConfig {
+    pub bootstrap_nodes: Vec<Multiaddr>,
+}
 pub struct P2PNode {
     swarm: libp2p::Swarm<OracleP2PBehaviour>,
     /// Topic where the P2P nodes will communicate their signed prices.
@@ -55,6 +60,7 @@ pub struct P2PNode {
     command_rx: mpsc::UnboundedReceiver<BroadcastedPrice>,
     /// Peers currently connected.
     peers: HashSet<PeerId>,
+    config: P2pConfig,
 }
 
 #[derive(NetworkBehaviour)]
@@ -72,7 +78,7 @@ impl OracleP2PBehaviour {
                     .with_agent_version(format!("pragma/{}", env!("CARGO_PKG_VERSION"))),
             ),
             kademlia: {
-                let protocol = StreamProtocol::try_from_owned("oracle_test_0".into())
+                let protocol = StreamProtocol::try_from_owned(PROTOCOL_VERSION.into())
                     .expect("Invalid kad stream protocol");
                 let mut cfg = kad::Config::new(protocol);
                 const PROVIDER_PUBLICATION_INTERVAL: Duration = Duration::from_secs(600);
@@ -95,6 +101,7 @@ impl OracleP2PBehaviour {
 impl P2PNode {
     pub async fn new(
         quorum_sender: mpsc::Sender<(MedianPrice, Vec<SignedData<MedianPrice>>)>,
+        config: P2pConfig,
     ) -> anyhow::Result<(Self, mpsc::UnboundedSender<BroadcastedPrice>)> {
         let keypair = Keypair::generate_ed25519();
         let peer_id = PeerId::from(keypair.public());
@@ -125,12 +132,22 @@ impl P2PNode {
             quorum_sender,
             command_rx,
             peers: HashSet::default(),
+            config,
         };
 
         Ok((node, command_tx))
     }
 
     pub async fn run(&mut self) {
+        let multi_addr = "/ip4/0.0.0.0".parse::<Multiaddr>().unwrap().with(Protocol::Tcp(TCP_PORT));
+        self.swarm.listen_on(multi_addr).unwrap();
+
+        for addr in &self.config.bootstrap_nodes {
+            if let Err(err) = self.swarm.dial(addr.clone()) {
+                tracing::debug!("Could not dial bootstrap node of addr {addr}: {err:#}");
+            }
+        }
+
         loop {
             tokio::select! {
                 Some((median_price, checkpoint)) = self.command_rx.recv() => {
