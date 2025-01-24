@@ -79,3 +79,4 @@ lcov.info
 # full node
 
 full_node_db/
+.sparse
