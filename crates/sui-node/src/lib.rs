@@ -52,7 +52,6 @@ use tower::ServiceBuilder;
 use tracing::{debug, error, warn};
 use tracing::{error_span, info, Instrument};
 
-use crate::extensions::sui_exexes;
 use crate::metrics::{GrpcMetrics, SuiNodeMetrics};
 use fastcrypto_zkp::bn254::zk_login::JWK;
 pub use handle::SuiNodeHandle;
