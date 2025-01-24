@@ -34,8 +34,7 @@ use sui_core::execution_cache::build_execution_cache;
 use sui_core::state_accumulator::StateAccumulatorMetrics;
 use sui_core::storage::RestReadStore;
 use sui_core::traffic_controller::metrics::TrafficControllerMetrics;
-use sui_exex::BoxedLaunchExEx;
-use sui_exex::ExExManagerHandle;
+use sui_exex::{BoxedLaunchExEx, ExExManagerHandle};
 use sui_json_rpc::bridge_api::BridgeReadApi;
 use sui_json_rpc_api::JsonRpcMetrics;
 use sui_network::randomness;
@@ -53,6 +52,7 @@ use tower::ServiceBuilder;
 use tracing::{debug, error, warn};
 use tracing::{error_span, info, Instrument};
 
+use crate::extensions::sui_exexes;
 use crate::metrics::{GrpcMetrics, SuiNodeMetrics};
 use fastcrypto_zkp::bn254::zk_login::JWK;
 pub use handle::SuiNodeHandle;

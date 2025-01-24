@@ -74,7 +74,6 @@ docs/content/references/framework/**
 
 lcov.info
 
-
 # full node
 ~/sui/db
 full_node_db/
