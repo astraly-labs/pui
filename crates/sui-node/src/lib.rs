@@ -1566,7 +1566,6 @@ impl SuiNode {
             let mut accumulator_guard = self.accumulator.lock().await;
             let accumulator = accumulator_guard.take().unwrap();
 
-            // TODO(sunfish): Pass the sparse state config to the CheckpointExecutor
             let mut checkpoint_executor = CheckpointExecutor::new(
                 self.state_sync_handle.subscribe_to_synced_checkpoints(),
                 self.checkpoint_store.clone(),

@@ -39,7 +39,7 @@ use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
 use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::inner_temporary_store::PackageStoreWithFallback;
 use sui_types::message_envelope::Message;
-use sui_types::messages_checkpoint::{CheckpointContents, FullCheckpointContents};
+use sui_types::messages_checkpoint::FullCheckpointContents;
 use sui_types::transaction::TransactionKind;
 use sui_types::{
     base_types::{ExecutionDigests, TransactionDigest, TransactionEffectsDigest},
@@ -752,7 +752,6 @@ async fn execute_checkpoint(
     //   get_unexecuted_transactions()
     // - Second, we execute all remaining transactions.
 
-    // TODO(sunfish): Filter and execute only the txs linked to the sparse state
     let (execution_digests, all_tx_digests, executable_txns, randomness_rounds) =
         get_unexecuted_transactions(
             checkpoint.clone(),
@@ -1021,7 +1020,6 @@ fn extract_end_of_epoch_tx(
 // Given a checkpoint, filter out any already executed transactions, then return the remaining
 // execution digests, transaction digests, transactions to be executed, and randomness rounds
 // (if any) included in the checkpoint.
-// TODO(sunfish): important function!
 #[allow(clippy::type_complexity)]
 fn get_unexecuted_transactions(
     checkpoint: VerifiedCheckpoint,
@@ -1055,14 +1053,11 @@ fn get_unexecuted_transactions(
         })
         .into_inner();
 
-    // Filter by events
-
-    // NOTE: full_contents seems to be None for end of epoch txs
     // NOTE: full_contents seems to be None for end of epoch txs
     if let Some(mut full_contents) = full_checkpoint_contents {
-        // TODO(sunfish): Here, we have to filter out some txs.
-        // NOTE: We need to keep txs with sender == ZERO
+        // NOTE(sunfish): Here, we have to filter out some txs.
         if let Some(sparse_state_config) = sparse_state_config {
+            // == Filter addresses sender if any ==
             if let Some(addresses) = sparse_state_config.addresses {
                 let (filtered_contents, removed_digests) =
                     full_contents.filter_by_addresses(&addresses);
@@ -1071,18 +1066,16 @@ fn get_unexecuted_transactions(
                 full_contents = filtered_contents.unwrap_or(full_contents);
                 execution_digests.retain(|x| !removed_digests.contains(x));
             }
+
+            // == Filter events if any ==
             if let Some(events) = sparse_state_config.events {
-                // First we build the digest out of the configuration events
+                // TODO(sunfish): We should store the parsed events selectors in the config just once
                 let event_digests = events
                     .iter()
-                    .map(|event| {
-                        let event_digest: TransactionEventsDigest =
-                            event.parse().expect("Invalid event digest");
-                        event_digest
-                    })
+                    .map(|event| event.parse().expect("Invalid event digest"))
                     .collect();
 
-                // Then we filter out events that are not in the configuration
+                // Filter out events that are not in the configuration
                 let (filtered_contents, removed_digests) =
                     full_contents.filter_by_events(&event_digests);
 
@@ -1240,7 +1233,6 @@ fn get_unexecuted_transactions(
 
 // Logs within the function are annotated with the checkpoint sequence number and epoch,
 // from schedule_checkpoint().
-// TODO(sunfish): Important function!
 #[instrument(level = "debug", skip_all)]
 async fn execute_transactions(
     execution_digests: Vec<ExecutionDigests>,

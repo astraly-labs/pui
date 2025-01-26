@@ -679,7 +679,7 @@ impl FullCheckpointContents {
     }
 
     pub fn filter_by_addresses(
-        &mut self,
+        &self,
         addresses: &[SuiAddress],
     ) -> (Option<Self>, Vec<ExecutionDigests>) {
         let addresses_set: HashSet<SuiAddress> = addresses.iter().cloned().collect();
