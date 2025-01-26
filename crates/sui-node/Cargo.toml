@@ -9,6 +9,10 @@ edition = "2021"
 [lints]
 workspace = true
 
+[[example]]
+name = "node_builder_test"
+path = "examples/node_builder_test.rs"
+
 [dependencies]
 anemo.workspace = true
 anemo-tower.workspace = true
@@ -20,7 +24,7 @@ bcs.workspace = true
 clap.workspace = true
 consensus-core.workspace = true
 prometheus.workspace = true
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["full", "tracing"] }
 tracing.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
@@ -37,6 +41,7 @@ sui-tls.workspace = true
 sui-macros.workspace = true
 sui-config.workspace = true
 sui-core.workspace = true
+sui-http.workspace = true
 sui-rpc-api.workspace = true
 sui-storage.workspace = true
 sui-network.workspace = true
@@ -46,16 +51,19 @@ sui-protocol-config.workspace = true
 sui-snapshot.workspace = true
 sui-telemetry.workspace = true
 sui-types.workspace = true
+sui-exex.workspace = true
 mysten-metrics.workspace = true
 mysten-service.workspace = true
 mysten-common.workspace = true
+tracing-subscriber.workspace = true
 typed-store.workspace = true
 mysten-network.workspace = true
 telemetry-subscribers.workspace = true
 fastcrypto.workspace = true
 fastcrypto-zkp.workspace = true
 move-vm-profiler.workspace = true
-sui-http.workspace = true
+move-core-types.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(msim)'.dependencies]
 sui-simulator.workspace = true

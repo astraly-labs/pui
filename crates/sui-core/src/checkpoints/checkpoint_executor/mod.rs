@@ -29,12 +29,12 @@ use either::Either;
 use futures::stream::FuturesOrdered;
 use itertools::izip;
 use mysten_metrics::spawn_monitored_task;
-use sui_config::node::{CheckpointExecutorConfig, RunWithRange, SparseStateConfig};
+use sui_config::node::{CheckpointExecutorConfig, RunWithRange};
+use sui_exex::{ExExManagerHandle, ExExNotification};
 use sui_macros::{fail_point, fail_point_async};
 use sui_types::accumulator::Accumulator;
 use sui_types::base_types::ExecutionData;
 use sui_types::crypto::RandomnessRound;
-use sui_types::digests::TransactionEventsDigest;
 use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
 use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::inner_temporary_store::PackageStoreWithFallback;
@@ -46,6 +46,7 @@ use sui_types::{
     messages_checkpoint::{CheckpointSequenceNumber, VerifiedCheckpoint},
     transaction::VerifiedTransaction,
 };
+use sui_config::node::SparseStateConfig;
 use sui_types::{error::SuiResult, transaction::TransactionDataAPI};
 use tap::{TapFallible, TapOptional};
 use tokio::{
@@ -151,6 +152,7 @@ pub struct CheckpointExecutor {
     executor_config: CheckpointExecutorConfig,
     sparse_state_config: Option<SparseStateConfig>,
     metrics: Arc<CheckpointExecutorMetrics>,
+    exex_manager: Option<ExExManagerHandle>,
 }
 
 impl CheckpointExecutor {
@@ -163,6 +165,7 @@ impl CheckpointExecutor {
         executor_config: CheckpointExecutorConfig,
         sparse_state_config: Option<SparseStateConfig>,
         metrics: Arc<CheckpointExecutorMetrics>,
+        exex_manager: Option<ExExManagerHandle>,
     ) -> Self {
         Self {
             mailbox,
@@ -176,6 +179,7 @@ impl CheckpointExecutor {
             executor_config,
             sparse_state_config,
             metrics,
+            exex_manager,
         }
     }
 
@@ -194,6 +198,7 @@ impl CheckpointExecutor {
             Default::default(),
             None,
             CheckpointExecutorMetrics::new_for_tests(),
+            None,
         )
     }
 
@@ -449,7 +454,14 @@ impl CheckpointExecutor {
         let cache_commit = self.state.get_cache_commit();
         debug!(seq = ?checkpoint.sequence_number, "committing checkpoint transactions to disk");
         cache_commit
-            .commit_transaction_outputs(epoch_store.epoch(), all_tx_digests)
+            .commit_transaction_outputs(
+                epoch_store.epoch(),
+                all_tx_digests,
+                epoch_store
+                    .protocol_config()
+                    .use_object_per_epoch_marker_table_v2_as_option()
+                    .unwrap_or(false),
+            )
             .await;
 
         epoch_store
@@ -546,6 +558,7 @@ impl CheckpointExecutor {
         let sparse_state_config = self.sparse_state_config.clone();
 
         epoch_store.notify_synced_checkpoint(*checkpoint.sequence_number());
+        self.notify_exex_checkpoint_synced(checkpoint.sequence_number());
 
         pending.push_back(spawn_monitored_task!(async move {
             let epoch_store = epoch_store.clone();
@@ -666,7 +679,14 @@ impl CheckpointExecutor {
 
                     let cache_commit = self.state.get_cache_commit();
                     cache_commit
-                        .commit_transaction_outputs(cur_epoch, &[change_epoch_tx_digest])
+                        .commit_transaction_outputs(
+                            cur_epoch,
+                            &[change_epoch_tx_digest],
+                            epoch_store
+                                .protocol_config()
+                                .use_object_per_epoch_marker_table_v2_as_option()
+                                .unwrap_or(false),
+                        )
                         .await;
                     fail_point_async!("prune-and-compact");
 
@@ -714,7 +734,6 @@ impl CheckpointExecutor {
                         .expect("Failed to accumulate running root");
                     self.accumulator
                         .accumulate_epoch(epoch_store.clone(), *checkpoint.sequence_number())
-                        .await
                         .expect("Accumulating epoch cannot fail");
 
                     self.bump_highest_executed_checkpoint(checkpoint);
@@ -724,6 +743,15 @@ impl CheckpointExecutor {
             }
         }
         false
+    }
+
+    fn notify_exex_checkpoint_synced(&self, checkpoint_seq: &CheckpointSequenceNumber) {
+        let Some(manager) = self.exex_manager.as_ref() else {
+            return;
+        };
+        let _ = manager.send(ExExNotification::CheckpointSynced {
+            checkpoint_number: *checkpoint_seq,
+        });
     }
 }
 

@@ -170,7 +170,7 @@ impl RosettaServerCommand {
                     mysten_metrics::start_prometheus_server(config.metrics_address);
                 // Staring a full node for the rosetta server.
                 let rpc_address = format!("http://127.0.0.1:{}", config.json_rpc_address.port());
-                let _node = SuiNode::start(config, registry_service, None).await?;
+                let _node = SuiNode::start(config, registry_service, None, vec![]).await?;
 
                 let sui_client = wait_for_sui_client(rpc_address).await;
 
@@ -186,11 +186,7 @@ impl RosettaServerCommand {
 
 async fn wait_for_sui_client(rpc_address: String) -> SuiClient {
     loop {
-        match SuiClientBuilder::default()
-            .max_concurrent_requests(usize::MAX)
-            .build(&rpc_address)
-            .await
-        {
+        match SuiClientBuilder::default().build(&rpc_address).await {
             Ok(client) => return client,
             Err(e) => {
                 warn!("Error connecting to Sui RPC server [{rpc_address}]: {e}, retrying in 5 seconds.");

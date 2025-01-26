@@ -34,6 +34,7 @@ use sui_core::execution_cache::build_execution_cache;
 use sui_core::state_accumulator::StateAccumulatorMetrics;
 use sui_core::storage::RestReadStore;
 use sui_core::traffic_controller::metrics::TrafficControllerMetrics;
+use sui_exex::{BoxedLaunchExEx, ExExManagerHandle};
 use sui_json_rpc::bridge_api::BridgeReadApi;
 use sui_json_rpc_api::JsonRpcMetrics;
 use sui_network::randomness;
@@ -51,6 +52,7 @@ use tower::ServiceBuilder;
 use tracing::{debug, error, warn};
 use tracing::{error_span, info, Instrument};
 
+use crate::metrics::{GrpcMetrics, SuiNodeMetrics};
 use fastcrypto_zkp::bn254::zk_login::JWK;
 pub use handle::SuiNodeHandle;
 use mysten_metrics::{spawn_monitored_task, RegistryService};
@@ -99,6 +101,7 @@ use sui_core::{
     authority::{AuthorityState, AuthorityStore},
     authority_client::NetworkAuthorityClient,
 };
+use sui_exex::ExExLauncher;
 use sui_json_rpc::coin_api::CoinReadApi;
 use sui_json_rpc::governance_api::GovernanceReadApi;
 use sui_json_rpc::indexer_api::IndexerApi;
@@ -136,9 +139,8 @@ use sui_types::supported_protocol_versions::SupportedProtocolVersions;
 use typed_store::rocks::default_db_options;
 use typed_store::DBMetrics;
 
-use crate::metrics::{GrpcMetrics, SuiNodeMetrics};
-
 pub mod admin;
+pub mod builder;
 mod handle;
 pub mod metrics;
 
@@ -265,6 +267,8 @@ pub struct SuiNode {
     // TODO: Eventually we can make this auth aggregator a shared reference so that this
     // update will automatically propagate to other uses.
     auth_agg: Arc<ArcSwap<AuthorityAggregator<NetworkAuthorityClient>>>,
+
+    exex_manager: Option<ExExManagerHandle>,
 }
 
 impl fmt::Debug for SuiNode {
@@ -282,8 +286,16 @@ impl SuiNode {
         config: NodeConfig,
         registry_service: RegistryService,
         custom_rpc_runtime: Option<Handle>,
+        exexes: Vec<(String, Box<dyn BoxedLaunchExEx>)>,
     ) -> Result<Arc<SuiNode>> {
-        Self::start_async(config, registry_service, custom_rpc_runtime, "unknown").await
+        Self::start_async(
+            config,
+            registry_service,
+            custom_rpc_runtime,
+            exexes,
+            "unknown",
+        )
+        .await
     }
 
     fn start_jwk_updater(
@@ -425,6 +437,7 @@ impl SuiNode {
         config: NodeConfig,
         registry_service: RegistryService,
         custom_rpc_runtime: Option<Handle>,
+        exexes: Vec<(String, Box<dyn BoxedLaunchExEx>)>,
         software_version: &'static str,
     ) -> Result<Arc<SuiNode>> {
         NodeConfigMetrics::new(&registry_service.default_registry()).record_metrics(&config);
@@ -495,7 +508,6 @@ impl SuiNode {
 
         let cache_traits = build_execution_cache(
             &config.execution_cache,
-            &epoch_start_configuration,
             &prometheus_registry,
             &store,
             backpressure_manager.clone(),
@@ -771,7 +783,7 @@ impl SuiNode {
 
         let http_server = build_http_server(
             state.clone(),
-            state_sync_store,
+            state_sync_store.clone(),
             &transaction_orchestrator.clone(),
             &config,
             &prometheus_registry,
@@ -782,7 +794,6 @@ impl SuiNode {
 
         let accumulator = Arc::new(StateAccumulator::new(
             cache_traits.accumulator_store.clone(),
-            &epoch_store,
             StateAccumulatorMetrics::new(&prometheus_registry),
         ));
 
@@ -810,6 +821,18 @@ impl SuiNode {
 
         let connection_monitor_status = Arc::new(connection_monitor_status);
         let sui_node_metrics = Arc::new(SuiNodeMetrics::new(&registry_service.default_registry()));
+
+        let exex_manager = if is_node {
+            ExExLauncher::new(
+                Arc::new(state_sync_store),
+                state_sync_handle.clone(),
+                exexes,
+            )
+            .launch()
+            .await?
+        } else {
+            None
+        };
 
         let validator_components = if state.is_validator(&epoch_store) {
             let components = Self::construct_validator_components(
@@ -868,6 +891,7 @@ impl SuiNode {
             shutdown_channel_tx: shutdown_channel,
 
             auth_agg,
+            exex_manager,
         };
 
         info!("SuiNode started!");
@@ -1304,7 +1328,7 @@ impl SuiNode {
         sui_node_metrics: Arc<SuiNodeMetrics>,
         sui_tx_validator_metrics: Arc<SuiTxValidatorMetrics>,
     ) -> Result<ValidatorComponents> {
-        let (checkpoint_service, checkpoint_service_tasks) = Self::start_checkpoint_service(
+        let checkpoint_service = Self::start_checkpoint_service(
             config,
             consensus_adapter.clone(),
             checkpoint_store,
@@ -1376,6 +1400,8 @@ impl SuiNode {
             )
             .await;
 
+        let checkpoint_service_tasks = checkpoint_service.spawn().await;
+
         if epoch_store.authenticator_state_enabled() {
             Self::start_jwk_updater(
                 config,
@@ -1407,7 +1433,7 @@ impl SuiNode {
         state_sync_handle: state_sync::Handle,
         accumulator: Weak<StateAccumulator>,
         checkpoint_metrics: Arc<CheckpointMetrics>,
-    ) -> (Arc<CheckpointService>, JoinSet<()>) {
+    ) -> Arc<CheckpointService> {
         let epoch_start_timestamp_ms = epoch_store.epoch_start_state().epoch_start_timestamp_ms();
         let epoch_duration_ms = epoch_store.epoch_start_state().epoch_duration_ms();
 
@@ -1432,7 +1458,7 @@ impl SuiNode {
         let max_checkpoint_size_bytes =
             epoch_store.protocol_config().max_checkpoint_size_bytes() as usize;
 
-        CheckpointService::spawn(
+        CheckpointService::build(
             state.clone(),
             checkpoint_store,
             epoch_store,
@@ -1574,6 +1600,7 @@ impl SuiNode {
                 self.config.checkpoint_executor_config.clone(),
                 self.config.sparse_state_config().cloned(),
                 checkpoint_executor_metrics.clone(),
+                self.exex_manager.clone(),
             );
 
             let run_with_range = self.config.run_with_range;
@@ -1748,7 +1775,6 @@ impl SuiNode {
                     .metrics();
                 let new_accumulator = Arc::new(StateAccumulator::new(
                     self.state.get_accumulator_store().clone(),
-                    &new_epoch_store,
                     accumulator_metrics,
                 ));
                 let weak_accumulator = Arc::downgrade(&new_accumulator);
@@ -1801,7 +1827,6 @@ impl SuiNode {
                     .metrics();
                 let new_accumulator = Arc::new(StateAccumulator::new(
                     self.state.get_accumulator_store().clone(),
-                    &new_epoch_store,
                     accumulator_metrics,
                 ));
                 let weak_accumulator = Arc::downgrade(&new_accumulator);
