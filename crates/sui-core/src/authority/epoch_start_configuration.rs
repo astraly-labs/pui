@@ -269,7 +269,6 @@ pub struct EpochStartConfigurationV6 {
     bridge_committee_initiated: bool,
 }
 
-
 impl EpochStartConfigurationV1 {
     pub fn new(system_state: EpochStartSystemState, epoch_digest: CheckpointDigest) -> Self {
         Self {

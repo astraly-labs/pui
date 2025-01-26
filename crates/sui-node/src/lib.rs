@@ -223,7 +223,6 @@ use sui_core::{
 };
 use sui_types::execution_config_utils::to_binary_config;
 
-
 pub struct SuiNode {
     config: NodeConfig,
     validator_components: Mutex<Option<ValidatorComponents>>,
