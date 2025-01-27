@@ -1,8 +1,10 @@
+use crate::SuiNode;
+use crate::SuiNodeHandle;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::SuiNode;
-use crate::SuiNodeHandle;
+use sui_config::node::SparseStateConfig;
 use sui_config::Config;
 use sui_config::NodeConfig;
 use sui_core::runtime::SuiRuntimes;
@@ -32,17 +34,23 @@ impl NodeBuilder {
         cfg.supported_protocol_versions = Some(SupportedProtocolVersions::SYSTEM_DEFAULT);
 
         self.config = Some(cfg);
-
         self
     }
 
-    pub fn with_exex(mut self, name: String, exex: Box<dyn BoxedLaunchExEx>) -> Self {
+    pub fn with_exexes(mut self, name: String, exex: Box<dyn BoxedLaunchExEx>) -> Self {
         self.exexes.push((name, exex));
         self
     }
 
+    pub fn and_override_sparse_config(mut self, sparse_state_config: SparseStateConfig) -> Self {
+        if let Some(ref mut config) = self.config {
+            config.sparse_state_config = Some(sparse_state_config);
+        }
+        self
+    }
+
     pub async fn launch(self) -> anyhow::Result<(SuiNodeHandle, Arc<SuiRuntimes>)> {
-        info!("Starting Node...");
+        info!("Starting Sui Node...");
         let cfg = self
             .config
             .as_ref()

@@ -9,10 +9,6 @@ edition = "2021"
 [lints]
 workspace = true
 
-[[example]]
-name = "node_builder_test"
-path = "examples/node_builder_test.rs"
-
 [dependencies]
 anemo.workspace = true
 anemo-tower.workspace = true
