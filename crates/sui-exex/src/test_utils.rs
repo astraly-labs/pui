@@ -1,9 +1,15 @@
 use anyhow::Result;
+use futures::FutureExt;
 use mysten_metrics::monitored_mpsc::{self, UnboundedReceiver};
+use std::convert::Infallible;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use sui_network::state_sync::{Builder, Handle, UnstartedStateSync};
 use sui_swarm_config::test_utils::{empty_contents, CommitteeFixture};
 use sui_types::{messages_checkpoint::CheckpointSequenceNumber, storage::SharedInMemoryStore};
+use thiserror::Error;
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
@@ -51,10 +57,6 @@ impl TestExExHandle {
                 );
                 Ok(())
             }
-            Ok(other) => Err(anyhow::anyhow!(
-                "Expected FinishedHeight event, got {:?}",
-                other
-            )),
             Err(e) => Err(anyhow::anyhow!("Failed to receive event: {}", e)),
         }
     }
@@ -93,6 +95,43 @@ pub async fn test_exex_context() -> Result<(ExExContext, TestExExHandle)> {
     };
 
     Ok((context, handle))
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PollError<E> {
+    #[error("Future completed unexpectedly")]
+    UnexpectedComplete,
+    #[error("Future failed with error: {0}")]
+    Failed(E),
+}
+
+/// A trait to allow polling a future exactly once
+#[async_trait::async_trait]
+pub trait PollOnce {
+    type Error;
+    /// Poll the future exactly once. Returns Ok(()) if the future is still pending,
+    /// and Err if the future completed unexpectedly or with an error.
+    async fn poll_once(&mut self) -> Result<(), PollError<Self::Error>>;
+}
+
+#[async_trait::async_trait]
+impl<F, E> PollOnce for F
+where
+    F: Future<Output = Result<(), E>> + Unpin + Send,
+    E: Send,
+{
+    type Error = E;
+
+    async fn poll_once(&mut self) -> Result<(), PollError<Self::Error>> {
+        let waker = futures::task::noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        match Pin::new(self).poll(&mut cx) {
+            Poll::Ready(Ok(_)) => Err(PollError::UnexpectedComplete),
+            Poll::Ready(Err(e)) => Err(PollError::Failed(e)),
+            Poll::Pending => Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]
