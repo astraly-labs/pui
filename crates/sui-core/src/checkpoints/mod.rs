@@ -1183,6 +1183,23 @@ impl CheckpointBuilder {
         let mut all_tx_digests =
             Vec::with_capacity(new_checkpoints.iter().map(|(_, c)| c.size()).sum());
 
+        // When upgrading to a data-quarantining build, we need to persist the transactions and effects
+        // to the database for crash recovery. After the upgrade this is no longer needed, because recovery
+        // is driven by replay of consensus commits.
+        // This only updates the content-addressed stores (similar to state sync), it does not mark any
+        // transactions as executed.
+        self.state
+            .get_cache_commit()
+            .persist_transactions_and_effects(
+                &new_checkpoints
+                    .iter()
+                    .flat_map(|(_, c)| {
+                        c.iter()
+                            .map(|digests| (digests.transaction, digests.effects))
+                    })
+                    .collect::<Vec<_>>(),
+            );
+
         for (summary, contents) in &new_checkpoints {
             debug!(
                 checkpoint_commit_height = height,
@@ -2329,15 +2346,13 @@ impl CheckpointService {
         tasks.spawn(monitored_future!(builder.run()));
         tasks.spawn(monitored_future!(aggregator.run()));
 
-        loop {
-            if tokio::time::timeout(Duration::from_secs(10), self.wait_for_rebuilt_checkpoints())
-                .await
-                .is_ok()
-            {
-                break;
-            } else {
-                debug_fatal!("Still waiting for checkpoints to be rebuilt");
-            }
+        // If this times out, the validator may still start up. The worst that can
+        // happen is that we will crash later on (due to missing transactions).
+        if tokio::time::timeout(Duration::from_secs(10), self.wait_for_rebuilt_checkpoints())
+            .await
+            .is_err()
+        {
+            debug_fatal!("Timed out waiting for checkpoints to be rebuilt");
         }
 
         tasks
@@ -2365,7 +2380,7 @@ impl CheckpointService {
         epoch_store: &AuthorityPerEpochStore,
         checkpoint: PendingCheckpointV2,
     ) -> SuiResult {
-        use crate::authority::authority_per_epoch_store::ConsensusCommitOutput;
+        use crate::authority::authority_per_epoch_store::consensus_quarantine::ConsensusCommitOutput;
 
         let mut output = ConsensusCommitOutput::new(0);
         epoch_store.write_pending_checkpoint(&mut output, &checkpoint)?;

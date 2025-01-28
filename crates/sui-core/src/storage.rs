@@ -4,7 +4,6 @@
 use move_core_types::language_storage::StructTag;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use sui_exex::context::ExExStore;
 use sui_types::base_types::ObjectID;
 use sui_types::base_types::SuiAddress;
 use sui_types::base_types::TransactionDigest;
@@ -30,7 +29,7 @@ use sui_types::storage::ObjectStore;
 use sui_types::storage::RpcIndexes;
 use sui_types::storage::RpcStateReader;
 use sui_types::storage::WriteStore;
-use sui_types::storage::{ObjectKey, ReadStore};
+use sui_types::storage::{ExExStore, ObjectKey, ReadStore};
 use sui_types::transaction::VerifiedTransaction;
 use tap::Pipe;
 

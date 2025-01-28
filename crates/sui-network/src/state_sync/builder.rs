@@ -120,7 +120,7 @@ where
         (builder, state_sync_server)
     }
 
-    pub(super) fn build_internal(self) -> (UnstartedStateSync<S>, Server<S>) {
+    pub fn build_internal(self) -> (UnstartedStateSync<S>, Server<S>) {
         let Builder {
             store,
             config,
@@ -177,15 +177,15 @@ where
 }
 
 pub struct UnstartedStateSync<S> {
-    pub(super) config: StateSyncConfig,
-    pub(super) handle: Handle,
-    pub(super) mailbox: mpsc::Receiver<StateSyncMessage>,
-    pub(super) download_limit_layer: Option<CheckpointContentsDownloadLimitLayer>,
-    pub(super) store: S,
-    pub(super) peer_heights: Arc<RwLock<PeerHeights>>,
-    pub(super) checkpoint_event_sender: broadcast::Sender<VerifiedCheckpoint>,
-    pub(super) metrics: Metrics,
-    pub(super) archive_readers: ArchiveReaderBalancer,
+    pub config: StateSyncConfig,
+    pub handle: Handle,
+    pub mailbox: mpsc::Receiver<StateSyncMessage>,
+    pub download_limit_layer: Option<CheckpointContentsDownloadLimitLayer>,
+    pub store: S,
+    pub peer_heights: Arc<RwLock<PeerHeights>>,
+    pub checkpoint_event_sender: broadcast::Sender<VerifiedCheckpoint>,
+    pub metrics: Metrics,
+    pub archive_readers: ArchiveReaderBalancer,
 }
 
 impl<S> UnstartedStateSync<S>

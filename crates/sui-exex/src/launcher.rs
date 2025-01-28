@@ -6,11 +6,9 @@ use futures::{
 };
 
 use sui_network::state_sync;
+use sui_types::storage::ExExStore;
 
-use crate::{
-    context::{ExExContext, ExExStore},
-    ExExHandle, ExExManager, ExExManagerHandle,
-};
+use crate::{context::ExExContext, ExExHandle, ExExManager, ExExManagerHandle};
 
 const DEFAULT_EXEX_MANAGER_CAPACITY: usize = 8;
 
