@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use mysten_metrics::monitored_mpsc::UnboundedSender;
 use sui_network::state_sync;
+
 use sui_types::{messages_checkpoint::CheckpointSequenceNumber, storage::ExExStore};
 
 use crate::{notification::ExExNotifications, ExExEvent};

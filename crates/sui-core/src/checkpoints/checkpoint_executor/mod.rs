@@ -30,6 +30,7 @@ use futures::stream::FuturesOrdered;
 use itertools::izip;
 use mysten_metrics::spawn_monitored_task;
 use sui_config::node::{CheckpointExecutorConfig, RunWithRange};
+use sui_exex::{ExExManagerHandle, ExExNotification};
 use sui_macros::{fail_point, fail_point_async};
 use sui_types::accumulator::Accumulator;
 use sui_types::crypto::RandomnessRound;
@@ -150,6 +151,7 @@ pub struct CheckpointExecutor {
     config: CheckpointExecutorConfig,
     metrics: Arc<CheckpointExecutorMetrics>,
     subscription_service_checkpoint_sender: Option<tokio::sync::mpsc::Sender<CheckpointData>>,
+    exex_manager: Option<ExExManagerHandle>,
 }
 
 impl CheckpointExecutor {
@@ -162,6 +164,7 @@ impl CheckpointExecutor {
         config: CheckpointExecutorConfig,
         metrics: Arc<CheckpointExecutorMetrics>,
         subscription_service_checkpoint_sender: Option<tokio::sync::mpsc::Sender<CheckpointData>>,
+        exex_manager: Option<ExExManagerHandle>,
     ) -> Self {
         Self {
             mailbox,
@@ -175,6 +178,7 @@ impl CheckpointExecutor {
             config,
             metrics,
             subscription_service_checkpoint_sender,
+            exex_manager,
         }
     }
 
@@ -576,6 +580,7 @@ impl CheckpointExecutor {
         let state = self.state.clone();
 
         epoch_store.notify_synced_checkpoint(*checkpoint.sequence_number());
+        self.notify_exex_checkpoint_synced(checkpoint.sequence_number());
 
         pending.push_back(spawn_monitored_task!(async move {
             let epoch_store = epoch_store.clone();
@@ -764,6 +769,15 @@ impl CheckpointExecutor {
             }
         }
         false
+    }
+
+    fn notify_exex_checkpoint_synced(&self, checkpoint_seq: &CheckpointSequenceNumber) {
+        let Some(manager) = self.exex_manager.as_ref() else {
+            return;
+        };
+        let _ = manager.send(ExExNotification::CheckpointSynced {
+            checkpoint_number: *checkpoint_seq,
+        });
     }
 }
 
