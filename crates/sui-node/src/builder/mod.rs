@@ -37,8 +37,8 @@ impl NodeBuilder {
         self
     }
 
-    pub fn with_exexes(mut self, name: String, exex: Box<dyn BoxedLaunchExEx>) -> Self {
-        self.exexes.push((name, exex));
+    pub fn with_exex(mut self, name: &str, exex: Box<dyn BoxedLaunchExEx>) -> Self {
+        self.exexes.push((String::from(name), exex));
         self
     }
 

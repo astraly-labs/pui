@@ -4093,7 +4093,8 @@ impl AuthorityState {
                     descending,
                 )?,
             // not using "_ =>" because we want to make sure we remember to add new variants here
-            EventFilter::Any(_) => {
+            // TODO(akhercha): Implement variants for JsonValue filtering + revert the "_"
+            _ => {
                 return Err(SuiError::UserInputError {
                     error: UserInputError::Unsupported(
                         "'Any' queries are not supported by the fullnode.".to_string(),

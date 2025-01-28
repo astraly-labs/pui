@@ -239,6 +239,10 @@ pub enum EventFilter {
         #[serde_as(as = "BigInt<u64>")]
         end_time: u64,
     },
+    /// Return events where the parsed_json matches any of the given values.
+    AnyValue(Vec<Value>),
+    /// Return events where the parsed_json matches all of the given values.
+    AllValues(Vec<Value>),
 }
 
 pub trait Filter<T> {

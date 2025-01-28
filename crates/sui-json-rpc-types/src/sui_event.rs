@@ -64,6 +64,38 @@ pub struct SuiEvent {
     pub timestamp_ms: Option<u64>,
 }
 
+impl Filter<SuiEvent> for EventFilter {
+    fn matches(&self, item: &SuiEvent) -> bool {
+        let _scope = monitored_scope("EventFilter::matches");
+        match self {
+            EventFilter::All([]) => true,
+            EventFilter::Any(filters) => filters.iter().any(|f| f.matches(item)),
+            EventFilter::MoveEventType(event_type) => &item.type_ == event_type,
+            EventFilter::Sender(sender) => &item.sender == sender,
+            EventFilter::MoveModule { package, module } => {
+                &item.transaction_module == module && &item.package_id == package
+            }
+            EventFilter::Transaction(digest) => digest == &item.id.tx_digest,
+
+            EventFilter::TimeRange {
+                start_time,
+                end_time,
+            } => {
+                if let Some(timestamp) = &item.timestamp_ms {
+                    start_time <= timestamp && end_time > timestamp
+                } else {
+                    false
+                }
+            }
+            EventFilter::MoveEventModule { package, module } => {
+                &item.type_.module == module && &ObjectID::from(item.type_.address) == package
+            }
+            EventFilter::AnyValue(values) => values.iter().any(|value| &item.parsed_json == value),
+            EventFilter::AllValues(values) => values.iter().all(|value| &item.parsed_json == value),
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", tag = "bcsEncoding")]
@@ -278,36 +310,6 @@ fn bytes_array_to_base64(v: &mut Value) {
 fn try_into_byte(v: &Value) -> Option<u8> {
     let num = v.as_u64()?;
     (num <= 255).then_some(num as u8)
-}
-
-impl Filter<SuiEvent> for EventFilter {
-    fn matches(&self, item: &SuiEvent) -> bool {
-        let _scope = monitored_scope("EventFilter::matches");
-        match self {
-            EventFilter::All([]) => true,
-            EventFilter::Any(filters) => filters.iter().any(|f| f.matches(item)),
-            EventFilter::MoveEventType(event_type) => &item.type_ == event_type,
-            EventFilter::Sender(sender) => &item.sender == sender,
-            EventFilter::MoveModule { package, module } => {
-                &item.transaction_module == module && &item.package_id == package
-            }
-            EventFilter::Transaction(digest) => digest == &item.id.tx_digest,
-
-            EventFilter::TimeRange {
-                start_time,
-                end_time,
-            } => {
-                if let Some(timestamp) = &item.timestamp_ms {
-                    start_time <= timestamp && end_time > timestamp
-                } else {
-                    false
-                }
-            }
-            EventFilter::MoveEventModule { package, module } => {
-                &item.type_.module == module && &ObjectID::from(item.type_.address) == package
-            }
-        }
-    }
 }
 
 #[cfg(test)]
