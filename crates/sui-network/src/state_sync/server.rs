@@ -31,7 +31,7 @@ pub struct GetCheckpointAvailabilityResponse {
     pub(crate) lowest_available_checkpoint: CheckpointSequenceNumber,
 }
 
-pub(super) struct Server<S> {
+pub struct Server<S> {
     pub(super) store: S,
     pub(super) peer_heights: Arc<RwLock<PeerHeights>>,
     pub(super) sender: mpsc::WeakSender<StateSyncMessage>,

@@ -29,7 +29,7 @@ use sui_types::storage::ObjectStore;
 use sui_types::storage::RpcIndexes;
 use sui_types::storage::RpcStateReader;
 use sui_types::storage::WriteStore;
-use sui_types::storage::{ObjectKey, ReadStore};
+use sui_types::storage::{ExExStore, ObjectKey, ReadStore};
 use sui_types::transaction::VerifiedTransaction;
 use tap::Pipe;
 
