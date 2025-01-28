@@ -10,10 +10,10 @@ use crate::crypto::{
     default_hash, get_key_pair, AccountKeyPair, AggregateAuthoritySignature, AuthoritySignInfo,
     AuthoritySignInfoTrait, AuthorityStrongQuorumSignInfo, RandomnessRound,
 };
-use crate::digests::Digest;
-use crate::effects::{TestEffectsBuilder, TransactionEffectsAPI};
+use crate::digests::{Digest, TransactionEventsDigest};
+use crate::effects::{TestEffectsBuilder, TransactionEffectsAPI, TransactionEvents};
 use crate::error::SuiResult;
-use crate::event::EventFilter;
+use crate::event::{EventFilter, Filter};
 use crate::gas::GasCostSummary;
 use crate::message_envelope::{Envelope, Message, TrustedEnvelope, VerifiedEnvelope};
 use crate::signature::GenericSignature;
@@ -551,11 +551,11 @@ impl CheckpointContents {
 // CheckpointBuilder::split_checkpoint_chunks should also be updated accordingly.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FullCheckpointContents {
-    transactions: Vec<ExecutionData>,
+    pub transactions: Vec<ExecutionData>,
     /// This field 'pins' user signatures for the checkpoint
     /// The length of this vector is same as length of transactions vector
     /// System transactions has empty signatures
-    user_signatures: Vec<Vec<GenericSignature>>,
+    pub user_signatures: Vec<Vec<GenericSignature>>,
 }
 
 impl FullCheckpointContents {
@@ -679,6 +679,14 @@ impl FullCheckpointContents {
         FullCheckpointContents::new_with_causally_ordered_transactions(vec![exe_data])
     }
 
+    pub fn all_events_digests(&self) -> Vec<TransactionEventsDigest> {
+        self.transactions
+            .iter()
+            .filter_map(|execution_data| execution_data.effects.events_digest())
+            .cloned()
+            .collect()
+    }
+
     pub fn filter_by_addresses(
         &self,
         addresses: &[SuiAddress],
@@ -712,7 +720,7 @@ impl FullCheckpointContents {
             };
         }
 
-        // TODO: Don't return Option<Self>, just mutate in place Self and return filtered out digests
+        // TODO(akhercha): Don't return Option<Self>, just mutate in place Self and return filtered out digests
         (
             Some(Self {
                 transactions: filtered_transactions,
@@ -720,49 +728,6 @@ impl FullCheckpointContents {
             }),
             filtered_out_digests,
         )
-    }
-
-    pub fn filter_by_events(
-        &mut self,
-        _event_filters: &[EventFilter],
-    ) -> (Option<Self>, Vec<ExecutionDigests>) {
-        let filtered_out_digests: Vec<ExecutionDigests> = vec![];
-        let mut filtered_transactions = Vec::new();
-        let mut filtered_signatures = Vec::new();
-
-        for (idx, tx) in self.transactions.iter().enumerate() {
-            let kind = match tx.transaction.data().intent_message().value {
-                TransactionData::V1(ref d) => &d.kind,
-            };
-
-            match kind {
-                TransactionKind::ProgrammableTransaction(_) => {
-                    // For programmable transactions, check if event digest is in the allowed event digests
-                    // TODO: Better handling of the unwrap here, we need to deal with the case where there is no events properly
-                    let _events_digests = &tx.effects.events_digest().unwrap();
-                    // if event_digests.contains() {
-                    //     filtered_transactions.push(tx.clone());
-                    //     filtered_signatures.push(self.user_signatures[idx].clone());
-                    // } else {
-                    //     filtered_out_digests.push(tx.digests());
-                    // }
-                }
-                // For other transaction types, always include them
-                _ => {
-                    filtered_transactions.push(tx.clone());
-                    filtered_signatures.push(self.user_signatures[idx].clone());
-                }
-            };
-        }
-
-        // TODO: Don't return Option<Self>, just mutate in place Self and return filtered out digests
-        if filtered_transactions.is_empty() {
-            (None, filtered_out_digests)
-        } else {
-            self.transactions = filtered_transactions;
-            self.user_signatures = filtered_signatures;
-            (Some(self.clone()), filtered_out_digests)
-        }
     }
 }
 

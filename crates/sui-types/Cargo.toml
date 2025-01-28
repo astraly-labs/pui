@@ -65,6 +65,9 @@ fastcrypto-tbls.workspace = true
 fastcrypto-zkp.workspace = true
 passkey-types.workspace = true
 
+json_to_table.workspace = true
+tabled.workspace = true
+
 typed-store-error.workspace = true
 derive_more = { workspace = true, features = ["as_ref", "debug", "display", "from"] }
 proptest.workspace = true

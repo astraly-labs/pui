@@ -32,15 +32,20 @@ use mysten_metrics::spawn_monitored_task;
 use sui_config::node::SparseStateConfig;
 use sui_config::node::{CheckpointExecutorConfig, RunWithRange};
 use sui_exex::{ExExManagerHandle, ExExNotification};
+use sui_json_rpc_types::Filter;
+use sui_json_rpc_types::{EventFilter, SuiEvent};
 use sui_macros::{fail_point, fail_point_async};
 use sui_types::accumulator::Accumulator;
 use sui_types::base_types::ExecutionData;
 use sui_types::crypto::RandomnessRound;
-use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
+use sui_types::effects::{TransactionEffects, TransactionEffectsAPI, TransactionEvents};
+use sui_types::event::Event;
 use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::inner_temporary_store::PackageStoreWithFallback;
+use sui_types::layout_resolver::LayoutResolver;
 use sui_types::message_envelope::Message;
 use sui_types::messages_checkpoint::FullCheckpointContents;
+use sui_types::transaction::TransactionData;
 use sui_types::transaction::TransactionKind;
 use sui_types::{
     base_types::{ExecutionDigests, TransactionDigest, TransactionEffectsDigest},
@@ -782,6 +787,7 @@ async fn execute_checkpoint(
 
     let (execution_digests, all_tx_digests, executable_txns, randomness_rounds) =
         get_unexecuted_transactions(
+            state,
             checkpoint.clone(),
             transaction_cache_reader,
             checkpoint_store.clone(),
@@ -1050,6 +1056,7 @@ fn extract_end_of_epoch_tx(
 // (if any) included in the checkpoint.
 #[allow(clippy::type_complexity)]
 fn get_unexecuted_transactions(
+    state: &AuthorityState,
     checkpoint: VerifiedCheckpoint,
     cache_reader: &dyn TransactionCacheRead,
     checkpoint_store: Arc<CheckpointStore>,
@@ -1106,12 +1113,28 @@ fn get_unexecuted_transactions(
             // == Filter events if any ==
             if let Some(event_filters) = sparse_state_config.events {
                 // Filter out events that are not in the configuration
-                let (filtered_contents, removed_digests) =
-                    full_contents.filter_by_events(&event_filters);
+                let events_digests = full_contents.all_events_digests();
+                if !events_digests.is_empty() {
+                    let all_events = cache_reader.multi_get_events(&events_digests);
+                    let layout_resolver = {
+                        let resolver = Box::new(state.get_backing_store().as_ref());
+                        epoch_store
+                            .executor()
+                            .type_layout_resolver::<'_, '_, '_>(resolver)
+                    };
+                    if !all_events.is_empty() {
+                        let (filtered_contents, removed_digests) = filter_content_by_events(
+                            &mut full_contents,
+                            layout_resolver,
+                            &all_events,
+                            &event_filters,
+                        );
 
-                // Update full_checkpoint_contents and execution_digests
-                full_contents = filtered_contents.unwrap_or(full_contents);
-                execution_digests.retain(|x| !removed_digests.contains(x));
+                        // Update full_checkpoint_contents and execution_digests
+                        full_contents = filtered_contents.unwrap_or(full_contents);
+                        execution_digests.retain(|x| !removed_digests.contains(x));
+                    }
+                }
             }
         }
         full_checkpoint_contents = Some(full_contents);
@@ -1418,4 +1441,63 @@ async fn finalize_checkpoint(
         }
     }
     Ok(checkpoint_acc)
+}
+
+pub fn filter_content_by_events<'r>(
+    full_checkpoint_content: &mut FullCheckpointContents,
+    mut layout_resolver: Box<dyn LayoutResolver + 'r>,
+    all_events: &[Option<TransactionEvents>],
+    event_filters: &[EventFilter],
+) -> (Option<FullCheckpointContents>, Vec<ExecutionDigests>) {
+    let filtered_out_digests: Vec<ExecutionDigests> = vec![];
+    let mut filtered_transactions = Vec::new();
+    let mut filtered_signatures = Vec::new();
+
+    for ((idx, tx), events) in full_checkpoint_content
+        .transactions
+        .iter()
+        .enumerate()
+        .zip(all_events)
+    {
+        let kind = match tx.transaction.data().intent_message().value {
+            TransactionData::V1(ref d) => &d.kind,
+        };
+        match kind {
+            TransactionKind::ProgrammableTransaction(_) => {
+                if let Some(found_events) = events {
+                    for (i, event) in found_events.data.iter().enumerate() {
+                        let layout = layout_resolver.get_annotated_layout(&event.type_).unwrap();
+                        let sui_event = SuiEvent::try_from(
+                            event.clone(),
+                            tx.transaction.digest().clone(),
+                            i.try_into().unwrap(),
+                            None,
+                            layout,
+                        )
+                        .expect("GRUUUUUUUIIIIIIIIIIIIIIKKKKKKKKKKK");
+                        if event_filters.iter().all(|filtr| filtr.matches(&sui_event)) {
+                            filtered_transactions.push(tx.clone());
+                            filtered_signatures
+                                .push(full_checkpoint_content.user_signatures[idx].clone());
+                            break;
+                        }
+                    }
+                }
+            }
+            // For other transaction types, always include them
+            _ => {
+                filtered_transactions.push(tx.clone());
+                filtered_signatures.push(full_checkpoint_content.user_signatures[idx].clone());
+            }
+        };
+    }
+
+    // TODO(akhercha): Don't return Option<Self>, just mutate in place Self and return filtered out digests
+    if filtered_transactions.is_empty() {
+        (None, filtered_out_digests)
+    } else {
+        full_checkpoint_content.transactions = filtered_transactions;
+        full_checkpoint_content.user_signatures = filtered_signatures;
+        (Some(full_checkpoint_content.clone()), filtered_out_digests)
+    }
 }

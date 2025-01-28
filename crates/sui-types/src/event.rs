@@ -248,3 +248,33 @@ pub enum EventFilter {
 pub trait Filter<T> {
     fn matches(&self, item: &T) -> bool;
 }
+
+impl Filter<Event> for EventFilter {
+    fn matches(&self, item: &Event) -> bool {
+        match self {
+            EventFilter::All([]) => true,
+
+            EventFilter::Any(filters) => filters.iter().any(|f| f.matches(item)),
+
+            EventFilter::MoveEventType(event_type) => &item.type_ == event_type,
+
+            EventFilter::Sender(sender) => &item.sender == sender,
+
+            EventFilter::MoveModule { package, module } => {
+                &item.transaction_module == module && &item.package_id == package
+            }
+
+            EventFilter::Transaction(_) => false, // Event type doesn't contain tx_digest
+
+            EventFilter::TimeRange { .. } => false, // Event type doesn't contain timestamp
+
+            EventFilter::MoveEventModule { package, module } => {
+                &item.type_.module == module && &ObjectID::from(item.type_.address) == package
+            }
+
+            EventFilter::AnyValue(_) => false, // Event type doesn't contain parsed_json
+
+            EventFilter::AllValues(_) => false, // Event type doesn't contain parsed_json
+        }
+    }
+}
