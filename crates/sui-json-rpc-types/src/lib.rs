@@ -18,6 +18,7 @@ pub use sui_object::*;
 pub use sui_protocol::*;
 pub use sui_transaction::*;
 use sui_types::base_types::ObjectID;
+pub use sui_types::event::{EventFilter, Filter};
 
 #[cfg(test)]
 #[path = "unit_tests/rpc_types_tests.rs"]

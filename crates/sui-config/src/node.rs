@@ -27,6 +27,7 @@ use sui_types::crypto::AuthorityPublicKeyBytes;
 use sui_types::crypto::KeypairTraits;
 use sui_types::crypto::NetworkKeyPair;
 use sui_types::crypto::SuiKeyPair;
+use sui_types::event::EventFilter;
 use sui_types::messages_checkpoint::CheckpointSequenceNumber;
 use sui_types::supported_protocol_versions::{Chain, SupportedProtocolVersions};
 use sui_types::traffic_control::{PolicyConfig, RemoteFirewallConfig};
@@ -1320,7 +1321,8 @@ pub struct SparseStateConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub addresses: Option<Vec<SuiAddress>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub events: Option<Vec<String>>,
+    pub events: Option<Vec<EventFilter>>,
+    // TODO(sunfish): Implement the packages filter
     #[serde(skip_serializing_if = "Option::is_none")]
     pub packages: Option<Vec<SuiAddress>>,
 }

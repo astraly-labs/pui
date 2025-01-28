@@ -29,6 +29,7 @@ use either::Either;
 use futures::stream::FuturesOrdered;
 use itertools::izip;
 use mysten_metrics::spawn_monitored_task;
+use sui_config::node::SparseStateConfig;
 use sui_config::node::{CheckpointExecutorConfig, RunWithRange};
 use sui_exex::{ExExManagerHandle, ExExNotification};
 use sui_macros::{fail_point, fail_point_async};
@@ -46,7 +47,6 @@ use sui_types::{
     messages_checkpoint::{CheckpointSequenceNumber, VerifiedCheckpoint},
     transaction::VerifiedTransaction,
 };
-use sui_config::node::SparseStateConfig;
 use sui_types::{error::SuiResult, transaction::TransactionDataAPI};
 use tap::{TapFallible, TapOptional};
 use tokio::{
@@ -1081,9 +1081,17 @@ fn get_unexecuted_transactions(
         })
         .into_inner();
 
-    // NOTE: full_contents seems to be None for end of epoch txs
+    // NOTE: `full_contents` is None for end of epoch txs
     if let Some(mut full_contents) = full_checkpoint_contents {
-        // NOTE(sunfish): Here, we have to filter out some txs.
+        // NOTE(sunfish): Here, we  filter out some txs.
+        // For now, this is "ok". The state will only contain the state that
+        // we're interested in.
+        // However, this is not optimal. We should filter the state that is
+        // sent by a Validator instead of filtering here.
+        // But this needs much much more work, i.e. all the work for the
+        // prover-verifier protocol and probably some more work with the digests
+        // validity.
+        // TODO(akhercha): Fix this issue in Github & implement for late february.
         if let Some(sparse_state_config) = sparse_state_config {
             // == Filter addresses sender if any ==
             if let Some(addresses) = sparse_state_config.addresses {
@@ -1096,16 +1104,10 @@ fn get_unexecuted_transactions(
             }
 
             // == Filter events if any ==
-            if let Some(events) = sparse_state_config.events {
-                // TODO(sunfish): We should store the parsed events selectors in the config just once
-                let event_digests = events
-                    .iter()
-                    .map(|event| event.parse().expect("Invalid event digest"))
-                    .collect();
-
+            if let Some(event_filters) = sparse_state_config.events {
                 // Filter out events that are not in the configuration
                 let (filtered_contents, removed_digests) =
-                    full_contents.filter_by_events(&event_digests);
+                    full_contents.filter_by_events(&event_filters);
 
                 // Update full_checkpoint_contents and execution_digests
                 full_contents = filtered_contents.unwrap_or(full_contents);

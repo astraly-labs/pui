@@ -1456,7 +1456,7 @@ impl AuthorityState {
         )
         .await?;
 
-        if let TransactionKind::AuthenticatorStateUpdate(auth_state) =
+        if let TransactionKind::AuthenticatorStateUpdate(_) =
             certificate.data().transaction_data().kind()
         {
             if let Some(err) = &execution_error_opt {

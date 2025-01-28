@@ -23,7 +23,7 @@ use sui_json_rpc_api::{
 use sui_json_rpc_types::CheckpointPage;
 use sui_json_rpc_types::{
     Balance, Checkpoint, CheckpointId, Coin, CoinPage, DelegatedStake, DevInspectResults,
-    DryRunTransactionBlockResponse, DynamicFieldPage, EventFilter, EventPage, ObjectsPage,
+    DryRunTransactionBlockResponse, DynamicFieldPage, EventPage, ObjectsPage,
     ProtocolConfigResponse, SuiCoinMetadata, SuiCommittee, SuiEvent, SuiGetPastObjectRequest,
     SuiMoveNormalizedModule, SuiObjectDataOptions, SuiObjectResponse, SuiObjectResponseQuery,
     SuiPastObjectResponse, SuiTransactionBlockEffects, SuiTransactionBlockResponse,
@@ -33,7 +33,7 @@ use sui_json_rpc_types::{
 use sui_types::balance::Supply;
 use sui_types::base_types::{ObjectID, SequenceNumber, SuiAddress, TransactionDigest};
 use sui_types::dynamic_field::DynamicFieldName;
-use sui_types::event::EventID;
+use sui_types::event::{EventFilter, EventID};
 use sui_types::messages_checkpoint::CheckpointSequenceNumber;
 use sui_types::quorum_driver_types::ExecuteTransactionRequestType;
 use sui_types::sui_serde::BigInt;

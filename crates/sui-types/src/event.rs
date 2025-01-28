@@ -16,12 +16,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_with::serde_as;
 use serde_with::Bytes;
+use serde_with::DisplayFromStr;
 
 use crate::base_types::{ObjectID, SuiAddress, TransactionDigest};
 use crate::error::{SuiError, SuiResult};
 use crate::object::bounded_visitor::BoundedVisitor;
 use crate::sui_serde::BigInt;
 use crate::sui_serde::Readable;
+use crate::sui_serde::SuiStructTag;
 use crate::SUI_SYSTEM_ADDRESS;
 
 /// A universal Sui event type encapsulating different types of events
@@ -174,4 +176,71 @@ pub struct SystemEpochInfoEvent {
     pub total_gas_fees: u64,
     pub total_stake_rewards_distributed: u64,
     pub leftover_storage_fund_inflow: u64,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub enum EventFilter {
+    /// Return all events.
+    All([Box<EventFilter>; 0]),
+
+    /// Return events that match any of the given filters. Only supported on event subscriptions.
+    Any(Vec<EventFilter>),
+
+    /// Query by sender address.
+    Sender(SuiAddress),
+
+    /// Return events emitted by the given transaction.
+    Transaction(
+        ///digest of the transaction, as base-64 encoded string
+        TransactionDigest,
+    ),
+    /// Return events emitted in a specified Move module.
+    /// If the event is defined in Module A but emitted in a tx with Module B,
+    /// query `MoveModule` by module B returns the event.
+    /// Query `MoveEventModule` by module A returns the event too.
+    MoveModule {
+        /// the Move package ID
+        package: ObjectID,
+        /// the module name
+        #[schemars(with = "String")]
+        #[serde_as(as = "DisplayFromStr")]
+        module: Identifier,
+    },
+    /// Return events with the given Move event struct name (struct tag).
+    /// For example, if the event is defined in `0xabcd::MyModule`, and named
+    /// `Foo`, then the struct tag is `0xabcd::MyModule::Foo`.
+    MoveEventType(
+        #[schemars(with = "String")]
+        #[serde_as(as = "SuiStructTag")]
+        StructTag,
+    ),
+    /// Return events with the given Move module name where the event struct is defined.
+    /// If the event is defined in Module A but emitted in a tx with Module B,
+    /// query `MoveEventModule` by module A returns the event.
+    /// Query `MoveModule` by module B returns the event too.
+    MoveEventModule {
+        /// the Move package ID
+        package: ObjectID,
+        /// the module name
+        #[schemars(with = "String")]
+        #[serde_as(as = "DisplayFromStr")]
+        module: Identifier,
+    },
+    /// Return events emitted in [start_time, end_time] interval
+    #[serde(rename_all = "camelCase")]
+    TimeRange {
+        /// left endpoint of time interval, milliseconds since epoch, inclusive
+        #[schemars(with = "BigInt<u64>")]
+        #[serde_as(as = "BigInt<u64>")]
+        start_time: u64,
+        /// right endpoint of time interval, milliseconds since epoch, exclusive
+        #[schemars(with = "BigInt<u64>")]
+        #[serde_as(as = "BigInt<u64>")]
+        end_time: u64,
+    },
+}
+
+pub trait Filter<T> {
+    fn matches(&self, item: &T) -> bool;
 }

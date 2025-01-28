@@ -21,7 +21,6 @@ use move_core_types::identifier::{IdentStr, Identifier};
 use move_core_types::language_storage::{ModuleId, StructTag, TypeTag};
 use mysten_metrics::monitored_scope;
 use sui_json::{primitive_type, SuiJsonValue};
-use sui_types::authenticator_state::ActiveJwk;
 use sui_types::base_types::{
     EpochId, ObjectID, ObjectRef, SequenceNumber, SuiAddress, TransactionDigest,
 };
@@ -51,11 +50,12 @@ use sui_types::transaction::{
     TransactionData, TransactionDataAPI, TransactionKind,
 };
 use sui_types::SUI_FRAMEWORK_ADDRESS;
+use sui_types::{authenticator_state::ActiveJwk, event::Filter};
 
 use crate::balance_changes::BalanceChange;
 use crate::object_changes::ObjectChange;
 use crate::sui_transaction::GenericSignature::Signature;
-use crate::{Filter, Page, SuiEvent, SuiObjectRef};
+use crate::{Page, SuiEvent, SuiObjectRef};
 
 // similar to EpochId of sui-types but BigInt
 pub type SuiEpochId = BigInt<u64>;

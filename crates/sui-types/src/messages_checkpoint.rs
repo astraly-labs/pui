@@ -10,9 +10,10 @@ use crate::crypto::{
     default_hash, get_key_pair, AccountKeyPair, AggregateAuthoritySignature, AuthoritySignInfo,
     AuthoritySignInfoTrait, AuthorityStrongQuorumSignInfo, RandomnessRound,
 };
-use crate::digests::{Digest, TransactionEventsDigest};
+use crate::digests::Digest;
 use crate::effects::{TestEffectsBuilder, TransactionEffectsAPI};
 use crate::error::SuiResult;
+use crate::event::EventFilter;
 use crate::gas::GasCostSummary;
 use crate::message_envelope::{Envelope, Message, TrustedEnvelope, VerifiedEnvelope};
 use crate::signature::GenericSignature;
@@ -723,9 +724,9 @@ impl FullCheckpointContents {
 
     pub fn filter_by_events(
         &mut self,
-        event_digests: &Vec<TransactionEventsDigest>,
+        _event_filters: &[EventFilter],
     ) -> (Option<Self>, Vec<ExecutionDigests>) {
-        let mut filtered_out_digests: Vec<ExecutionDigests> = vec![];
+        let filtered_out_digests: Vec<ExecutionDigests> = vec![];
         let mut filtered_transactions = Vec::new();
         let mut filtered_signatures = Vec::new();
 
@@ -738,12 +739,13 @@ impl FullCheckpointContents {
                 TransactionKind::ProgrammableTransaction(_) => {
                     // For programmable transactions, check if event digest is in the allowed event digests
                     // TODO: Better handling of the unwrap here, we need to deal with the case where there is no events properly
-                    if event_digests.contains(&tx.effects.events_digest().unwrap()) {
-                        filtered_transactions.push(tx.clone());
-                        filtered_signatures.push(self.user_signatures[idx].clone());
-                    } else {
-                        filtered_out_digests.push(tx.digests());
-                    }
+                    let _events_digests = &tx.effects.events_digest().unwrap();
+                    // if event_digests.contains() {
+                    //     filtered_transactions.push(tx.clone());
+                    //     filtered_signatures.push(self.user_signatures[idx].clone());
+                    // } else {
+                    //     filtered_out_digests.push(tx.digests());
+                    // }
                 }
                 // For other transaction types, always include them
                 _ => {
