@@ -197,6 +197,7 @@ impl CheckpointExecutor {
             Default::default(),
             CheckpointExecutorMetrics::new_for_tests(),
             None,
+            None,
         )
     }
 
