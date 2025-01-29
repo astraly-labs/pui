@@ -11,9 +11,8 @@ use crate::crypto::{
     AuthoritySignInfoTrait, AuthorityStrongQuorumSignInfo, RandomnessRound,
 };
 use crate::digests::{Digest, TransactionEventsDigest};
-use crate::effects::{TestEffectsBuilder, TransactionEffectsAPI, TransactionEvents};
+use crate::effects::{TestEffectsBuilder, TransactionEffectsAPI};
 use crate::error::SuiResult;
-use crate::event::{EventFilter, Filter};
 use crate::gas::GasCostSummary;
 use crate::message_envelope::{Envelope, Message, TrustedEnvelope, VerifiedEnvelope};
 use crate::signature::GenericSignature;
@@ -691,7 +690,7 @@ impl FullCheckpointContents {
         &self,
         addresses: &[SuiAddress],
     ) -> (Option<Self>, Vec<ExecutionDigests>) {
-        let addresses_set: HashSet<SuiAddress> = addresses.iter().cloned().collect();
+        let allowed_senders: HashSet<SuiAddress> = addresses.iter().cloned().collect();
 
         let mut filtered_out_digests: Vec<ExecutionDigests> = vec![];
         let mut filtered_transactions = Vec::new();
@@ -704,11 +703,14 @@ impl FullCheckpointContents {
 
             match kind {
                 TransactionKind::ProgrammableTransaction(_) => {
+                    tracing::info!("[🌞🐟] Filtering a ProgrammableTransaction...");
                     // For programmable transactions, check if sender is in the allowed addresses
-                    if addresses_set.contains(&sender) {
+                    if allowed_senders.contains(&sender) {
+                        tracing::info!("[🌞🐟] Correct sender! {}", sender);
                         filtered_transactions.push(tx.clone());
                         filtered_signatures.push(self.user_signatures[idx].clone());
                     } else {
+                        tracing::info!("[🌞🐟] Incorrect sender 😨 Filtering out tx: {:?}", tx);
                         filtered_out_digests.push(tx.digests());
                     }
                 }

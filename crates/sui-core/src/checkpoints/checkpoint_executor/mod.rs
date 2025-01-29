@@ -36,10 +36,9 @@ use sui_json_rpc_types::Filter;
 use sui_json_rpc_types::{EventFilter, SuiEvent};
 use sui_macros::{fail_point, fail_point_async};
 use sui_types::accumulator::Accumulator;
-use sui_types::base_types::ExecutionData;
+use sui_types::base_types::{ExecutionData, SuiAddress};
 use sui_types::crypto::RandomnessRound;
-use sui_types::effects::{TransactionEffects, TransactionEffectsAPI, TransactionEvents};
-use sui_types::event::Event;
+use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
 use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::inner_temporary_store::PackageStoreWithFallback;
 use sui_types::layout_resolver::LayoutResolver;
@@ -1088,7 +1087,7 @@ fn get_unexecuted_transactions(
         })
         .into_inner();
 
-    // NOTE: `full_contents` is None for end of epoch txs
+    // NOTE: `full_checkpoint_contents` is None for end of epoch txs
     if let Some(mut full_contents) = full_checkpoint_contents {
         // NOTE(sunfish): Here, we  filter out some txs.
         // For now, this is "ok". The state will only contain the state that
@@ -1098,44 +1097,15 @@ fn get_unexecuted_transactions(
         // But this needs much much more work, i.e. all the work for the
         // prover-verifier protocol and probably some more work with the digests
         // validity.
-        // TODO(akhercha): Fix this issue in Github & implement for late february.
-        if let Some(sparse_state_config) = sparse_state_config {
-            // == Filter addresses sender if any ==
-            if let Some(addresses) = sparse_state_config.addresses {
-                let (filtered_contents, removed_digests) =
-                    full_contents.filter_by_addresses(&addresses);
-
-                // Update full_checkpoint_contents and execution_digests
-                full_contents = filtered_contents.unwrap_or(full_contents);
-                execution_digests.retain(|x| !removed_digests.contains(x));
-            }
-
-            // == Filter events if any ==
-            if let Some(event_filters) = sparse_state_config.events {
-                // Filter out events that are not in the configuration
-                let events_digests = full_contents.all_events_digests();
-                if !events_digests.is_empty() {
-                    let all_events = cache_reader.multi_get_events(&events_digests);
-                    let layout_resolver = {
-                        let resolver = Box::new(state.get_backing_store().as_ref());
-                        epoch_store
-                            .executor()
-                            .type_layout_resolver::<'_, '_, '_>(resolver)
-                    };
-                    if !all_events.is_empty() {
-                        let (filtered_contents, removed_digests) = filter_content_by_events(
-                            &mut full_contents,
-                            layout_resolver,
-                            &all_events,
-                            &event_filters,
-                        );
-
-                        // Update full_checkpoint_contents and execution_digests
-                        full_contents = filtered_contents.unwrap_or(full_contents);
-                        execution_digests.retain(|x| !removed_digests.contains(x));
-                    }
-                }
-            }
+        if let Some(config) = sparse_state_config {
+            apply_sparse_filters(
+                &mut full_contents,
+                &mut execution_digests,
+                config,
+                state,
+                &epoch_store,
+                cache_reader,
+            );
         }
         full_checkpoint_contents = Some(full_contents);
     }
@@ -1443,61 +1413,103 @@ async fn finalize_checkpoint(
     Ok(checkpoint_acc)
 }
 
+// ========== Sunfish Filtering ==========
+
+fn apply_sparse_filters(
+    full_contents: &mut FullCheckpointContents,
+    execution_digests: &mut Vec<ExecutionDigests>,
+    config: SparseStateConfig,
+    state: &AuthorityState,
+    epoch_store: &Arc<AuthorityPerEpochStore>,
+    cache_reader: &dyn TransactionCacheRead,
+) {
+    let SparseStateConfig {
+        addresses,
+        events,
+        packages: _,
+    } = config;
+
+    // Address filtering
+    if let Some(addresses) = addresses {
+        let (filtered, removed) = full_contents.filter_by_addresses(&addresses);
+        *full_contents = filtered.unwrap_or_else(|| full_contents.clone());
+        execution_digests.retain(|d| !removed.contains(d));
+    }
+
+    // Event filtering
+    if let Some(event_filters) = events {
+        if !full_contents.all_events_digests().is_empty() {
+            let layout_resolver = epoch_store
+                .executor()
+                .type_layout_resolver(Box::new(state.get_backing_store().as_ref()));
+
+            let (filtered, removed) = filter_content_by_events(
+                layout_resolver,
+                cache_reader,
+                full_contents,
+                &event_filters,
+            );
+
+            *full_contents = filtered.unwrap_or_else(|| full_contents.clone());
+            execution_digests.retain(|d| !removed.contains(d));
+        }
+    }
+}
+
+// ========== Event Filtering ==========
 pub fn filter_content_by_events<'r>(
-    full_checkpoint_content: &mut FullCheckpointContents,
     mut layout_resolver: Box<dyn LayoutResolver + 'r>,
-    all_events: &[Option<TransactionEvents>],
+    cache_reader: &dyn TransactionCacheRead,
+    checkpoint_content: &FullCheckpointContents,
     event_filters: &[EventFilter],
 ) -> (Option<FullCheckpointContents>, Vec<ExecutionDigests>) {
-    let filtered_out_digests: Vec<ExecutionDigests> = vec![];
-    let mut filtered_transactions = Vec::new();
-    let mut filtered_signatures = Vec::new();
-
-    for ((idx, tx), events) in full_checkpoint_content
+    let (kept, filtered_out): (Vec<_>, Vec<_>) = checkpoint_content
         .transactions
         .iter()
-        .enumerate()
-        .zip(all_events)
-    {
-        let kind = match tx.transaction.data().intent_message().value {
-            TransactionData::V1(ref d) => &d.kind,
-        };
-        match kind {
-            TransactionKind::ProgrammableTransaction(_) => {
-                if let Some(found_events) = events {
-                    for (i, event) in found_events.data.iter().enumerate() {
-                        let layout = layout_resolver.get_annotated_layout(&event.type_).unwrap();
-                        let sui_event = SuiEvent::try_from(
-                            event.clone(),
-                            tx.transaction.digest().clone(),
-                            i.try_into().unwrap(),
-                            None,
-                            layout,
-                        )
-                        .expect("GRUUUUUUUIIIIIIIIIIIIIIKKKKKKKKKKK");
-                        if event_filters.iter().all(|filtr| filtr.matches(&sui_event)) {
-                            filtered_transactions.push(tx.clone());
-                            filtered_signatures
-                                .push(full_checkpoint_content.user_signatures[idx].clone());
-                            break;
-                        }
-                    }
-                }
-            }
-            // For other transaction types, always include them
-            _ => {
-                filtered_transactions.push(tx.clone());
-                filtered_signatures.push(full_checkpoint_content.user_signatures[idx].clone());
-            }
-        };
-    }
+        .zip(&checkpoint_content.user_signatures)
+        .partition(|(tx, _)| {
+            tx_matches_event_filters(&mut layout_resolver, cache_reader, tx, event_filters)
+        });
 
-    // TODO(akhercha): Don't return Option<Self>, just mutate in place Self and return filtered out digests
-    if filtered_transactions.is_empty() {
-        (None, filtered_out_digests)
-    } else {
-        full_checkpoint_content.transactions = filtered_transactions;
-        full_checkpoint_content.user_signatures = filtered_signatures;
-        (Some(full_checkpoint_content.clone()), filtered_out_digests)
-    }
+    let result = kept.is_empty().then(|| FullCheckpointContents {
+        transactions: kept.iter().map(|(tx, _)| *tx).cloned().collect(),
+        user_signatures: kept.iter().map(|(_, sig)| *sig).cloned().collect(),
+        ..checkpoint_content.clone()
+    });
+
+    let filtered_digests = filtered_out.iter().map(|(tx, _)| tx.digests()).collect();
+
+    (result, filtered_digests)
+}
+
+fn tx_matches_event_filters<'r>(
+    layout_resolver: &mut Box<dyn LayoutResolver + 'r>,
+    cache_reader: &dyn TransactionCacheRead,
+    tx: &ExecutionData,
+    event_filters: &[EventFilter],
+) -> bool {
+    let TransactionData::V1(d) = &tx.transaction.data().intent_message().value;
+
+    // Skip filtering for non-programmable transactions and zero address
+    !matches!(d.kind, TransactionKind::ProgrammableTransaction(_)) || d.sender == SuiAddress::ZERO ||
+    // Event filtering logic
+    tx.effects.events_digest()
+        .and_then(|digest| cache_reader.get_events(&digest))
+        .map_or(false, |events| {
+            events.data.iter().enumerate().any(|(i, event)| {
+                let Ok(layout) = layout_resolver.get_annotated_layout(&event.type_) else {
+                    return false;
+                };
+
+                SuiEvent::try_from(
+                    event.clone(),
+                    tx.transaction.digest().clone(),
+                    i.try_into().unwrap(),
+                    None,
+                    layout,
+                )
+                .map(|sui_event| event_filters.iter().all(|f| f.matches(&sui_event)))
+                .unwrap_or(false)
+            })
+        })
 }
