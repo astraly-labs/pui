@@ -7,7 +7,6 @@ use crate::SuiNodeHandle;
 use sui_config::Config;
 use sui_config::NodeConfig;
 use sui_core::runtime::SuiRuntimes;
-use sui_exex::box_exex;
 use sui_exex::BoxedLaunchExEx;
 use sui_exex::ExExContext;
 use sui_types::supported_protocol_versions::SupportedProtocolVersions;
