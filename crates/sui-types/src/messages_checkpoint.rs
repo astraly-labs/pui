@@ -686,50 +686,37 @@ impl FullCheckpointContents {
             .collect()
     }
 
-    pub fn filter_by_addresses(
-        &self,
-        addresses: &[SuiAddress],
-    ) -> (Option<Self>, Vec<ExecutionDigests>) {
+    pub fn filter_by_addresses(&mut self, addresses: &[SuiAddress]) -> Vec<ExecutionDigests> {
         let allowed_senders: HashSet<SuiAddress> = addresses.iter().cloned().collect();
+        let mut filtered_out_digests = Vec::new();
 
-        let mut filtered_out_digests: Vec<ExecutionDigests> = vec![];
-        let mut filtered_transactions = Vec::new();
-        let mut filtered_signatures = Vec::new();
+        // Iterate through transactions and signatures in lockstep
+        let mut new_transactions = Vec::new();
+        let mut new_signatures = Vec::new();
 
-        for (idx, tx) in self.transactions.iter().enumerate() {
+        for (tx, sig) in self.transactions.iter().zip(&self.user_signatures) {
             let (sender, kind) = match tx.transaction.data().intent_message().value {
                 TransactionData::V1(ref d) => (d.sender, &d.kind),
             };
 
-            match kind {
-                TransactionKind::ProgrammableTransaction(_) => {
-                    tracing::info!("[🌞🐟] Filtering a ProgrammableTransaction...");
-                    // For programmable transactions, check if sender is in the allowed addresses
-                    if allowed_senders.contains(&sender) {
-                        tracing::info!("[🌞🐟] Correct sender! {}", sender);
-                        filtered_transactions.push(tx.clone());
-                        filtered_signatures.push(self.user_signatures[idx].clone());
-                    } else {
-                        tracing::info!("[🌞🐟] Incorrect sender 😨 Filtering out tx: {:?}", tx);
-                        filtered_out_digests.push(tx.digests());
-                    }
-                }
-                // For other transaction types, always include them
-                _ => {
-                    filtered_transactions.push(tx.clone());
-                    filtered_signatures.push(self.user_signatures[idx].clone());
-                }
+            let keep = match kind {
+                TransactionKind::ProgrammableTransaction(_) => allowed_senders.contains(&sender),
+                _ => true,
             };
+
+            if keep {
+                new_transactions.push(tx.clone());
+                new_signatures.push(sig.clone());
+            } else {
+                filtered_out_digests.push(tx.digests());
+            }
         }
 
-        // TODO(akhercha): Don't return Option<Self>, just mutate in place Self and return filtered out digests
-        (
-            Some(Self {
-                transactions: filtered_transactions,
-                user_signatures: filtered_signatures,
-            }),
-            filtered_out_digests,
-        )
+        // Update in place
+        self.transactions = new_transactions;
+        self.user_signatures = new_signatures;
+
+        filtered_out_digests
     }
 }
 

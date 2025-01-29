@@ -1431,8 +1431,7 @@ fn apply_sparse_filters(
 
     // Address filtering
     if let Some(addresses) = addresses {
-        let (filtered, removed) = full_contents.filter_by_addresses(&addresses);
-        *full_contents = filtered.unwrap_or_else(|| full_contents.clone());
+        let removed = full_contents.filter_by_addresses(&addresses);
         execution_digests.retain(|d| !removed.contains(d));
     }
 
@@ -1443,14 +1442,13 @@ fn apply_sparse_filters(
                 .executor()
                 .type_layout_resolver(Box::new(state.get_backing_store().as_ref()));
 
-            let (filtered, removed) = filter_content_by_events(
+            let removed = filter_content_by_events(
                 layout_resolver,
                 cache_reader,
                 full_contents,
                 &event_filters,
             );
 
-            *full_contents = filtered.unwrap_or_else(|| full_contents.clone());
             execution_digests.retain(|d| !removed.contains(d));
         }
     }
@@ -1460,9 +1458,10 @@ fn apply_sparse_filters(
 pub fn filter_content_by_events<'r>(
     mut layout_resolver: Box<dyn LayoutResolver + 'r>,
     cache_reader: &dyn TransactionCacheRead,
-    checkpoint_content: &FullCheckpointContents,
+    checkpoint_content: &mut FullCheckpointContents,
     event_filters: &[EventFilter],
-) -> (Option<FullCheckpointContents>, Vec<ExecutionDigests>) {
+) -> Vec<ExecutionDigests> {
+    // Partition into kept and filtered out
     let (kept, filtered_out): (Vec<_>, Vec<_>) = checkpoint_content
         .transactions
         .iter()
@@ -1471,15 +1470,15 @@ pub fn filter_content_by_events<'r>(
             tx_matches_event_filters(&mut layout_resolver, cache_reader, tx, event_filters)
         });
 
-    let result = kept.is_empty().then(|| FullCheckpointContents {
-        transactions: kept.iter().map(|(tx, _)| *tx).cloned().collect(),
-        user_signatures: kept.iter().map(|(_, sig)| *sig).cloned().collect(),
-        ..checkpoint_content.clone()
-    });
-
+    // Collect filtered digests
     let filtered_digests = filtered_out.iter().map(|(tx, _)| tx.digests()).collect();
 
-    (result, filtered_digests)
+    let new_transactions: Vec<_> = kept.iter().cloned().map(|(tx, _)| tx.clone()).collect();
+    let new_signatures: Vec<_> = kept.iter().cloned().map(|(_, sig)| sig.clone()).collect();
+    checkpoint_content.transactions = new_transactions;
+    checkpoint_content.user_signatures = new_signatures;
+
+    filtered_digests
 }
 
 fn tx_matches_event_filters<'r>(
