@@ -45,7 +45,6 @@ impl<T: WriteStore + ?Sized> WriteStore for &T {
     fn insert_committee(&self, new_committee: Committee) -> Result<()> {
         (*self).insert_committee(new_committee)
     }
-    
 }
 
 impl<T: WriteStore + ?Sized> WriteStore for Box<T> {

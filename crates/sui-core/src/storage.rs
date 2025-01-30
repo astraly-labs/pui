@@ -3,7 +3,6 @@
 
 use move_core_types::language_storage::StructTag;
 use parking_lot::Mutex;
-use sui_types::sunfish::SparseStatePredicates;
 use std::sync::Arc;
 use sui_exex::context::ExExStore;
 use sui_types::base_types::ObjectID;
@@ -32,6 +31,7 @@ use sui_types::storage::RpcIndexes;
 use sui_types::storage::RpcStateReader;
 use sui_types::storage::WriteStore;
 use sui_types::storage::{ObjectKey, ReadStore};
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::transaction::VerifiedTransaction;
 use tap::Pipe;
 
@@ -50,7 +50,7 @@ pub struct RocksDbStore {
 
     committee_store: Arc<CommitteeStore>,
     checkpoint_store: Arc<CheckpointStore>,
-    
+
     // in memory checkpoint watermark sequence numbers
     highest_verified_checkpoint: Arc<Mutex<Option<u64>>>,
     highest_synced_checkpoint: Arc<Mutex<Option<u64>>>,
@@ -72,7 +72,7 @@ impl RocksDbStore {
             checkpoint_store,
             highest_verified_checkpoint: Arc::new(Mutex::new(None)),
             highest_synced_checkpoint: Arc::new(Mutex::new(None)),
-            sparse_state_predicates
+            sparse_state_predicates,
         }
     }
 

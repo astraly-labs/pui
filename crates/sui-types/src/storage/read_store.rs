@@ -30,7 +30,6 @@ pub trait ReadStore: ObjectStore {
 
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>>;
 
-
     //
     // Sparse Node Getters
     //

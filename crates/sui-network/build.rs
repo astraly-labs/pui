@@ -196,7 +196,7 @@ fn build_anemo_services(out_dir: &Path) {
                 .name("get_sparse_state_predicates")
                 .route_name("GetSparseStatePredicates")
                 .request_type("()")
-                .response_type("crate::state_sync::GetSparseStatePredicatesResponse")
+                .response_type("Option<sui_types::sunfish::SparseStatePredicates>")
                 .codec_path(codec_path)
                 .build(),
         )

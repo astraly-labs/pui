@@ -90,7 +90,6 @@ pub use generated::{
 };
 pub use server::GetCheckpointAvailabilityResponse;
 pub use server::GetCheckpointSummaryRequest;
-pub use server::GetSparseStatePredicatesResponse;
 use sui_archival::reader::ArchiveReaderBalancer;
 use sui_storage::verify_checkpoint;
 use sui_types::sunfish::SparseStatePredicates;
@@ -306,8 +305,9 @@ impl PeerHeights {
         self.wait_interval_when_no_peer_to_sync_content
     }
 
+    #[allow(unused)]
     pub fn is_sparse_node(&self, peer_id: PeerId) -> bool {
-         self.peers_sparse_state_predicates.contains_key(&peer_id)
+        self.peers_sparse_state_predicates.contains_key(&peer_id)
     }
 }
 
@@ -883,6 +883,8 @@ async fn get_latest_from_peer(
         return;
     }
 
+    trace!("MAKING REQUEST FOR SUNFISH PREDICATES");
+
     // Check if the peer is a sparse node
     let response = client
         .get_sparse_state_predicates(Request::new(()))
@@ -890,7 +892,7 @@ async fn get_latest_from_peer(
         .map(Response::into_inner);
 
     let sparse_state_predicates = match response {
-        Ok(response) => response.predicates,
+        Ok(predicates) => predicates,
         Err(status) => {
             trace!("get_sparse_state_predicates request failed: {status:?}");
             return;

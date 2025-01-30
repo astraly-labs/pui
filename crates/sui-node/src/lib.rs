@@ -592,6 +592,7 @@ impl SuiNode {
                 .p2p_config
                 .state_sync
                 .clone()
+                // TODO(sunfish): unsafe unwrap
                 .unwrap()
                 .sparse_state_predicates
                 .clone(),
