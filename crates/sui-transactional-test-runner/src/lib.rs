@@ -367,7 +367,7 @@ impl ReadStore for ValidatorWithFullnode {
     }
 
     fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
-        todo!()
+        None
     }
 }
 

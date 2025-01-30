@@ -305,6 +305,10 @@ impl PeerHeights {
     pub fn wait_interval_when_no_peer_to_sync_content(&self) -> Duration {
         self.wait_interval_when_no_peer_to_sync_content
     }
+
+    pub fn is_sparse_node(&self, peer_id: PeerId) -> bool {
+         self.peers_sparse_state_predicates.contains_key(&peer_id)
+    }
 }
 
 // PeerBalancer is an Iterator that selects peers based on RTT with some added randomness.
@@ -881,9 +885,10 @@ async fn get_latest_from_peer(
 
     // Check if the peer is a sparse node
     let response = client
-        .get_sparse_state_predicates(())
+        .get_sparse_state_predicates(Request::new(()))
         .await
         .map(Response::into_inner);
+
     let sparse_state_predicates = match response {
         Ok(response) => response.predicates,
         Err(status) => {
@@ -891,6 +896,20 @@ async fn get_latest_from_peer(
             return;
         }
     };
+
+    // Bail early if there's no sparse state predicates to update
+    if peer_heights
+        .read()
+        .unwrap()
+        .peers_sparse_state_predicates
+        .get(&peer_id)
+        .is_none()
+        && sparse_state_predicates.is_none()
+    {
+        trace!("Ignoring since state is None & response is None");
+        return;
+    }
+
     peer_heights
         .write()
         .unwrap()
@@ -1289,7 +1308,6 @@ async fn sync_checkpoint_contents<S>(
                             .expect("store operation should not fail");
 
                         // TODO(sunfish): Filter the checkpoint content for sparse nodes and only send the relevant infos?
-
                         // We don't care if no one is listening as this is a broadcast channel
                         let _ = checkpoint_event_sender.send(checkpoint.clone());
                         tx_concurrency_remaining += checkpoint.network_total_transactions - highest_synced.network_total_transactions;

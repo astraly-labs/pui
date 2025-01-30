@@ -549,7 +549,7 @@ impl<T, V: store::SimulatorStore> ReadStore for Simulacrum<T, V> {
     }
 
     fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
-        todo!()
+        None
     }
 }
 

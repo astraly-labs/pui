@@ -13,7 +13,7 @@ use sui_types::supported_protocol_versions::SupportedProtocolVersions;
 use tracing::info;
 
 pub struct NodeBuilder {
-    config: Option<NodeConfig>,
+    pub config: Option<NodeConfig>,
     exexes: Vec<(String, Box<dyn BoxedLaunchExEx>)>,
 }
 

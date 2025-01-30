@@ -97,6 +97,66 @@ async fn server_push_checkpoint() {
     ));
 }
 
+// #[tokio::test]
+// async fn server_init_sparse_node() {
+//     let committee = CommitteeFixture::generate(rand::rngs::OsRng, 0, 4);
+//     let (ordered_checkpoints, _, _sequence_number_to_digest, _checkpoints) =
+//         committee.make_empty_checkpoints(2, None);
+//     let store = SharedInMemoryStore::default();
+//     store.inner_mut().insert_genesis_state(
+//         ordered_checkpoints.first().cloned().unwrap(),
+//         empty_contents(),
+//         committee.committee().to_owned(),
+//     );
+
+//     let (
+//         UnstartedStateSync {
+//             handle: _handle,
+//             mut mailbox,
+//             peer_heights,
+//             ..
+//         },
+//         server,
+//     ) = Builder::new().store(store).build_internal();
+//     let peer_id = PeerId([9; 32]); // fake PeerId
+
+//     peer_heights
+//         .write()
+//         .unwrap()
+//         .peers_sparse_state_predicates
+//         .insert(
+//             peer_id,
+//             Some(sui_types::sunfish::SparseStatePredicates {
+//                 addresses: Some(vec![]),
+//                 events: None,
+//                 packages: None,
+//             }),
+//         );
+
+//     let request = Request::new(checkpoint.clone()).with_extension(peer_id);
+//     server.push_checkpoint_summary(request).await.unwrap();
+
+//     assert_eq!(
+//         peer_heights.read().unwrap().peers.get(&peer_id),
+//         Some(&PeerStateSyncInfo {
+//             genesis_checkpoint_digest: *ordered_checkpoints[0].digest(),
+//             on_same_chain_as_us: true,
+//             height: 1,
+//             lowest: 0,
+//         })
+//     );
+//     assert_eq!(
+//         peer_heights
+//             .read()
+//             .unwrap()
+//             .unprocessed_checkpoints
+//             .get(checkpoint.digest())
+//             .unwrap()
+//             .data(),
+//         checkpoint.data(),
+//     );
+// }
+
 #[tokio::test]
 async fn server_get_checkpoint() {
     let committee = CommitteeFixture::generate(rand::rngs::OsRng, 0, 4);
