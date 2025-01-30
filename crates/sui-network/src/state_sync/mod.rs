@@ -90,8 +90,10 @@ pub use generated::{
 };
 pub use server::GetCheckpointAvailabilityResponse;
 pub use server::GetCheckpointSummaryRequest;
+pub use server::GetSparseStatePredicatesResponse;
 use sui_archival::reader::ArchiveReaderBalancer;
 use sui_storage::verify_checkpoint;
+use sui_types::sunfish::SparseStatePredicates;
 
 use self::{metrics::Metrics, server::CheckpointContentsDownloadLimitLayer};
 
@@ -144,6 +146,12 @@ struct PeerHeights {
 
     // The amount of time to wait before retry if there are no peers to sync content from.
     wait_interval_when_no_peer_to_sync_content: Duration,
+
+    /// Contains the sparse state predicates allowing us to filter the
+    /// transactions sent to the peer.
+    /// Only filled for Peers that are on the same chain than us - will be always
+    /// None for others (even if they're a sparse node).
+    peers_sparse_state_predicates: HashMap<PeerId, Option<SparseStatePredicates>>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -224,6 +232,25 @@ impl PeerHeights {
             }
             Entry::Vacant(entry) => {
                 entry.insert(info);
+            }
+        }
+    }
+
+    #[instrument(level = "debug", skip_all, fields(peer_id=?peer_id))]
+    pub fn insert_sparse_predicates(
+        &mut self,
+        peer_id: PeerId,
+        sparse_state_predicates: Option<SparseStatePredicates>,
+    ) {
+        use std::collections::hash_map::Entry;
+        debug!("Insert sparse state predicate");
+
+        match self.peers_sparse_state_predicates.entry(peer_id) {
+            Entry::Occupied(mut _entry) => {
+                todo!("Figure out how to handle this");
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(sparse_state_predicates);
             }
         }
     }
@@ -404,6 +431,8 @@ where
         self.config.pinned_checkpoints.sort();
 
         let mut interval = tokio::time::interval(self.config.interval_period());
+
+        // TODO(sunfish): Handle those first peer events
         let mut peer_events = {
             let (subscriber, peers) = self.network.subscribe().unwrap();
             for peer_id in peers {
@@ -411,6 +440,7 @@ where
             }
             subscriber
         };
+
         let (
             target_checkpoint_contents_sequence_sender,
             target_checkpoint_contents_sequence_receiver,
@@ -623,6 +653,11 @@ where
             }
             Ok(PeerEvent::LostPeer(peer_id, _)) => {
                 self.peer_heights.write().unwrap().peers.remove(&peer_id);
+                self.peer_heights
+                    .write()
+                    .unwrap()
+                    .peers_sparse_state_predicates
+                    .remove(&peer_id);
             }
 
             Err(RecvError::Closed) => {
@@ -833,6 +868,7 @@ async fn get_latest_from_peer(
                 .write()
                 .unwrap()
                 .insert_peer_info(peer_id, info);
+
             info
         }
     };
@@ -842,11 +878,30 @@ async fn get_latest_from_peer(
         trace!(?info, "Peer {peer_id} not on same chain as us");
         return;
     }
+
+    // Check if the peer is a sparse node
+    let response = client
+        .get_sparse_state_predicates(())
+        .await
+        .map(Response::into_inner);
+    let sparse_state_predicates = match response {
+        Ok(response) => response.predicates,
+        Err(status) => {
+            trace!("get_sparse_state_predicates request failed: {status:?}");
+            return;
+        }
+    };
+    peer_heights
+        .write()
+        .unwrap()
+        .insert_sparse_predicates(peer_id, sparse_state_predicates);
+
     let Some((highest_checkpoint, low_watermark)) =
         query_peer_for_latest_info(&mut client, timeout).await
     else {
         return;
     };
+
     peer_heights
         .write()
         .unwrap()

@@ -588,6 +588,13 @@ impl SuiNode {
             cache_traits.clone(),
             committee_store.clone(),
             checkpoint_store.clone(),
+            config
+                .p2p_config
+                .state_sync
+                .clone()
+                .unwrap()
+                .sparse_state_predicates
+                .clone(),
         );
 
         let index_store = if is_node && config.enable_index_processing {
@@ -1204,6 +1211,7 @@ impl SuiNode {
             network
         };
 
+        // TODO(sunfish): Check if we need the discovery with a Sparse Node
         let discovery_handle =
             discovery.start(p2p_network.clone(), config.network_key_pair().copy());
         let state_sync_handle = state_sync.start(p2p_network.clone());
@@ -1598,7 +1606,6 @@ impl SuiNode {
                 accumulator.clone(),
                 self.backpressure_manager.clone(),
                 self.config.checkpoint_executor_config.clone(),
-                self.config.sparse_state_config().cloned(),
                 checkpoint_executor_metrics.clone(),
                 self.exex_manager.clone(),
             );

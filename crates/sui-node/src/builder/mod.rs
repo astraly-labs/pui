@@ -4,11 +4,11 @@ use crate::SuiNodeHandle;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use sui_config::node::SparseStateConfig;
 use sui_config::Config;
 use sui_config::NodeConfig;
 use sui_core::runtime::SuiRuntimes;
 use sui_exex::BoxedLaunchExEx;
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::supported_protocol_versions::SupportedProtocolVersions;
 use tracing::info;
 
@@ -42,9 +42,14 @@ impl NodeBuilder {
         self
     }
 
-    pub fn and_override_sparse_config(mut self, sparse_state_config: SparseStateConfig) -> Self {
+    pub fn and_override_sparse_config(
+        mut self,
+        sparse_state_config: SparseStatePredicates,
+    ) -> Self {
         if let Some(ref mut config) = self.config {
-            config.sparse_state_config = Some(sparse_state_config);
+            if let Some(ref mut state_sync_config) = config.p2p_config.state_sync {
+                state_sync_config.sparse_state_predicates = Some(sparse_state_config);
+            }
         }
         self
     }

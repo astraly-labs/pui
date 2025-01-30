@@ -2511,4 +2511,8 @@ impl ReadStore for SuiTestAdapter {
     ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
         self.executor.get_full_checkpoint_contents(digest)
     }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        None
+    }
 }

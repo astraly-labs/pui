@@ -101,6 +101,10 @@ impl ReadStore for SharedInMemoryStore {
             .map(Arc::new)
     }
 
+    fn get_sparse_state_predicates(&self) -> Option<crate::sunfish::SparseStatePredicates> {
+        None
+    }
+
     fn get_transaction(&self, digest: &TransactionDigest) -> Option<Arc<VerifiedTransaction>> {
         self.inner()
             .get_transaction_block(digest)
@@ -502,6 +506,10 @@ impl ReadStore for SingleCheckpointSharedInMemoryStore {
 
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {
         self.0.get_committee(epoch)
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<crate::sunfish::SparseStatePredicates> {
+        self.0.get_sparse_state_predicates()
     }
 
     fn get_transaction(&self, digest: &TransactionDigest) -> Option<Arc<VerifiedTransaction>> {

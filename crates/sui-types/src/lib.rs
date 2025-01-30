@@ -34,6 +34,7 @@ pub mod bridge;
 pub mod clock;
 pub mod coin;
 pub mod collection_types;
+pub mod sunfish;
 pub mod committee;
 pub mod config;
 pub mod crypto;

@@ -179,7 +179,7 @@ pub struct SystemEpochInfoEvent {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub enum EventFilter {
     /// Return all events.
     All([Box<EventFilter>; 0]),

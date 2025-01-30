@@ -15,6 +15,7 @@ use crate::full_checkpoint_content::CheckpointData;
 use crate::messages_checkpoint::{
     CheckpointContents, CheckpointSequenceNumber, FullCheckpointContents, VerifiedCheckpoint,
 };
+use crate::sunfish::SparseStatePredicates;
 use crate::transaction::VerifiedTransaction;
 use move_core_types::language_storage::StructTag;
 use move_core_types::language_storage::TypeTag;
@@ -28,6 +29,13 @@ pub trait ReadStore: ObjectStore {
     //
 
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>>;
+
+
+    //
+    // Sparse Node Getters
+    //
+
+    fn get_sparse_state_predicates(&self) -> Option<SparseStatePredicates>;
 
     //
     // Checkpoint Getters
@@ -269,6 +277,10 @@ impl<T: ReadStore + ?Sized> ReadStore for &T {
         (*self).get_committee(epoch)
     }
 
+    fn get_sparse_state_predicates(&self) -> Option<SparseStatePredicates> {
+        (*self).get_sparse_state_predicates()
+    }
+
     fn get_latest_checkpoint(&self) -> Result<VerifiedCheckpoint> {
         (*self).get_latest_checkpoint()
     }
@@ -379,6 +391,10 @@ impl<T: ReadStore + ?Sized> ReadStore for Box<T> {
         (**self).get_committee(epoch)
     }
 
+    fn get_sparse_state_predicates(&self) -> Option<SparseStatePredicates> {
+        (**self).get_sparse_state_predicates()
+    }
+
     fn get_latest_checkpoint(&self) -> Result<VerifiedCheckpoint> {
         (**self).get_latest_checkpoint()
     }
@@ -487,6 +503,10 @@ impl<T: ReadStore + ?Sized> ReadStore for Box<T> {
 impl<T: ReadStore + ?Sized> ReadStore for Arc<T> {
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {
         (**self).get_committee(epoch)
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<SparseStatePredicates> {
+        (**self).get_sparse_state_predicates()
     }
 
     fn get_latest_checkpoint(&self) -> Result<VerifiedCheckpoint> {

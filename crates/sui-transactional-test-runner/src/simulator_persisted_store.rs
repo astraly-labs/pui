@@ -656,6 +656,10 @@ impl ReadStore for PersistedStoreInnerReadOnlyWrapper {
     ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
         todo!()
     }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        todo!()
+    }
 }
 
 impl RpcStateReader for PersistedStoreInnerReadOnlyWrapper {

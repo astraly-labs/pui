@@ -3,6 +3,7 @@
 
 use move_core_types::language_storage::StructTag;
 use parking_lot::Mutex;
+use sui_types::sunfish::SparseStatePredicates;
 use std::sync::Arc;
 use sui_exex::context::ExExStore;
 use sui_types::base_types::ObjectID;
@@ -49,9 +50,13 @@ pub struct RocksDbStore {
 
     committee_store: Arc<CommitteeStore>,
     checkpoint_store: Arc<CheckpointStore>,
+    
     // in memory checkpoint watermark sequence numbers
     highest_verified_checkpoint: Arc<Mutex<Option<u64>>>,
     highest_synced_checkpoint: Arc<Mutex<Option<u64>>>,
+
+    // in memory sparse state predicates for sparse nodes
+    sparse_state_predicates: Option<SparseStatePredicates>,
 }
 
 impl RocksDbStore {
@@ -59,6 +64,7 @@ impl RocksDbStore {
         cache_traits: ExecutionCacheTraitPointers,
         committee_store: Arc<CommitteeStore>,
         checkpoint_store: Arc<CheckpointStore>,
+        sparse_state_predicates: Option<SparseStatePredicates>,
     ) -> Self {
         Self {
             cache_traits,
@@ -66,6 +72,7 @@ impl RocksDbStore {
             checkpoint_store,
             highest_verified_checkpoint: Arc::new(Mutex::new(None)),
             highest_synced_checkpoint: Arc::new(Mutex::new(None)),
+            sparse_state_predicates
         }
     }
 
@@ -239,6 +246,10 @@ impl ReadStore for RocksDbStore {
             Some(checkpoint) => self.get_checkpoint_contents_by_digest(&checkpoint.content_digest),
             None => None,
         }
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        self.sparse_state_predicates.clone()
     }
 }
 
@@ -444,6 +455,10 @@ impl ReadStore for RestReadStore {
         digest: &CheckpointContentsDigest,
     ) -> Option<FullCheckpointContents> {
         self.rocks.get_full_checkpoint_contents(digest)
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        self.rocks.sparse_state_predicates.clone()
     }
 }
 

@@ -191,6 +191,15 @@ fn build_anemo_services(out_dir: &Path) {
                 .codec_path(codec_path)
                 .build(),
         )
+        .method(
+            anemo_build::manual::Method::builder()
+                .name("get_sparse_state_predicates")
+                .route_name("GetSparseStatePredicates")
+                .request_type("()")
+                .response_type("crate::state_sync::GetSparseStatePredicatesResponse")
+                .codec_path(codec_path)
+                .build(),
+        )
         .build();
 
     let randomness = anemo_build::manual::Service::builder()

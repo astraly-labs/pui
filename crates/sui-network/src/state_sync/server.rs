@@ -8,6 +8,8 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
+use sui_types::storage::ReadStore;
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::{
     digests::{CheckpointContentsDigest, CheckpointDigest},
     messages_checkpoint::{
@@ -31,6 +33,11 @@ pub struct GetCheckpointAvailabilityResponse {
     pub(crate) lowest_available_checkpoint: CheckpointSequenceNumber,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GetSparseStatePredicatesResponse {
+    pub(crate) predicates: Option<SparseStatePredicates>,
+}
+
 pub(super) struct Server<S> {
     pub(super) store: S,
     pub(super) peer_heights: Arc<RwLock<PeerHeights>>,
@@ -40,7 +47,7 @@ pub(super) struct Server<S> {
 #[anemo::async_trait]
 impl<S> StateSync for Server<S>
 where
-    S: WriteStore + Send + Sync + 'static,
+    S: WriteStore + ReadStore + Send + Sync + 'static,
 {
     async fn push_checkpoint_summary(
         &self,
@@ -126,6 +133,16 @@ where
     ) -> Result<Response<Option<FullCheckpointContents>>, Status> {
         let contents = self.store.get_full_checkpoint_contents(request.inner());
         Ok(Response::new(contents))
+    }
+
+    async fn get_sparse_state_predicates(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<GetSparseStatePredicatesResponse>, Status> {
+        let contents = self.store.get_sparse_state_predicates();
+        Ok(Response::new(GetSparseStatePredicatesResponse {
+            predicates: contents,
+        }))
     }
 }
 

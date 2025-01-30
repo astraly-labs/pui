@@ -547,6 +547,10 @@ impl<T, V: store::SimulatorStore> ReadStore for Simulacrum<T, V> {
     ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
         todo!()
     }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        todo!()
+    }
 }
 
 impl<T: Send + Sync, V: store::SimulatorStore + Send + Sync> RpcStateReader for Simulacrum<T, V> {

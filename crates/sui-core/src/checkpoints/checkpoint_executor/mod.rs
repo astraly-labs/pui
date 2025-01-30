@@ -29,7 +29,6 @@ use either::Either;
 use futures::stream::FuturesOrdered;
 use itertools::izip;
 use mysten_metrics::spawn_monitored_task;
-use sui_config::node::SparseStateConfig;
 use sui_config::node::{CheckpointExecutorConfig, RunWithRange};
 use sui_exex::{ExExManagerHandle, ExExNotification};
 use sui_json_rpc_types::Filter;
@@ -44,6 +43,7 @@ use sui_types::inner_temporary_store::PackageStoreWithFallback;
 use sui_types::layout_resolver::LayoutResolver;
 use sui_types::message_envelope::Message;
 use sui_types::messages_checkpoint::FullCheckpointContents;
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::transaction::TransactionData;
 use sui_types::transaction::TransactionKind;
 use sui_types::{
@@ -154,7 +154,6 @@ pub struct CheckpointExecutor {
     accumulator: Arc<StateAccumulator>,
     backpressure_manager: Arc<BackpressureManager>,
     executor_config: CheckpointExecutorConfig,
-    sparse_state_config: Option<SparseStateConfig>,
     metrics: Arc<CheckpointExecutorMetrics>,
     exex_manager: Option<ExExManagerHandle>,
 }
@@ -167,7 +166,6 @@ impl CheckpointExecutor {
         accumulator: Arc<StateAccumulator>,
         backpressure_manager: Arc<BackpressureManager>,
         executor_config: CheckpointExecutorConfig,
-        sparse_state_config: Option<SparseStateConfig>,
         metrics: Arc<CheckpointExecutorMetrics>,
         exex_manager: Option<ExExManagerHandle>,
     ) -> Self {
@@ -181,7 +179,6 @@ impl CheckpointExecutor {
             accumulator,
             backpressure_manager,
             executor_config,
-            sparse_state_config,
             metrics,
             exex_manager,
         }
@@ -200,7 +197,6 @@ impl CheckpointExecutor {
             accumulator,
             BackpressureManager::new_for_tests(),
             Default::default(),
-            None,
             CheckpointExecutorMetrics::new_for_tests(),
             None,
         )
@@ -559,7 +555,6 @@ impl CheckpointExecutor {
         let tx_manager = self.tx_manager.clone();
         let accumulator = self.accumulator.clone();
         let state = self.state.clone();
-        let sparse_state_config = self.sparse_state_config.clone();
 
         epoch_store.notify_synced_checkpoint(*checkpoint.sequence_number());
         self.notify_exex_checkpoint_synced(checkpoint.sequence_number());
@@ -579,7 +574,6 @@ impl CheckpointExecutor {
                     local_execution_timeout_sec,
                     &metrics,
                     data_ingestion_dir.clone(),
-                    sparse_state_config.clone(),
                 )
                 .await
                 {
@@ -774,7 +768,6 @@ async fn execute_checkpoint(
     local_execution_timeout_sec: u64,
     metrics: &Arc<CheckpointExecutorMetrics>,
     data_ingestion_dir: Option<PathBuf>,
-    sparse_state_config: Option<SparseStateConfig>,
 ) -> SuiResult<(Vec<TransactionDigest>, Option<Accumulator>)> {
     debug!("Preparing checkpoint for execution",);
     let prepare_start = Instant::now();
@@ -786,12 +779,10 @@ async fn execute_checkpoint(
 
     let (execution_digests, all_tx_digests, executable_txns, randomness_rounds) =
         get_unexecuted_transactions(
-            state,
             checkpoint.clone(),
             transaction_cache_reader,
             checkpoint_store.clone(),
             epoch_store.clone(),
-            sparse_state_config,
         );
 
     let tx_count = execution_digests.len();
@@ -1055,12 +1046,10 @@ fn extract_end_of_epoch_tx(
 // (if any) included in the checkpoint.
 #[allow(clippy::type_complexity)]
 fn get_unexecuted_transactions(
-    state: &AuthorityState,
     checkpoint: VerifiedCheckpoint,
     cache_reader: &dyn TransactionCacheRead,
     checkpoint_store: Arc<CheckpointStore>,
     epoch_store: Arc<AuthorityPerEpochStore>,
-    sparse_state_config: Option<SparseStateConfig>,
 ) -> (
     Vec<ExecutionDigests>,
     Vec<TransactionDigest>,
@@ -1069,7 +1058,7 @@ fn get_unexecuted_transactions(
 ) {
     let checkpoint_sequence = checkpoint.sequence_number();
 
-    let mut full_checkpoint_contents: Option<FullCheckpointContents> = checkpoint_store
+    let full_checkpoint_contents: Option<FullCheckpointContents> = checkpoint_store
         .get_full_checkpoint_contents_by_sequence_number(*checkpoint_sequence)
         .expect("Failed to get checkpoint contents from store")
         .tap_some(|_| {
@@ -1087,28 +1076,28 @@ fn get_unexecuted_transactions(
         })
         .into_inner();
 
-    // NOTE: `full_checkpoint_contents` is None for end of epoch txs
-    if let Some(mut full_contents) = full_checkpoint_contents {
-        // NOTE(sunfish): Here, we  filter out some txs.
-        // For now, this is "ok". The state will only contain the state that
-        // we're interested in.
-        // However, this is not optimal. We should filter the state that is
-        // sent by a Validator instead of filtering here.
-        // But this needs much much more work, i.e. all the work for the
-        // prover-verifier protocol and probably some more work with the digests
-        // validity.
-        if let Some(config) = sparse_state_config {
-            apply_sparse_filters(
-                &mut full_contents,
-                &mut execution_digests,
-                config,
-                state,
-                &epoch_store,
-                cache_reader,
-            );
-        }
-        full_checkpoint_contents = Some(full_contents);
-    }
+    // // NOTE: `full_checkpoint_contents` is None for end of epoch txs
+    // if let Some(mut full_contents) = full_checkpoint_contents {
+    //     // NOTE(sunfish): Here, we  filter out some txs.
+    //     // For now, this is "ok". The state will only contain the state that
+    //     // we're interested in.
+    //     // However, this is not optimal. We should filter the state that is
+    //     // sent by a Validator instead of filtering here.
+    //     // But this needs much much more work, i.e. all the work for the
+    //     // prover-verifier protocol and probably some more work with the digests
+    //     // validity.
+    //     if let Some(config) = sparse_state_config {
+    //         apply_sparse_filters(
+    //             &mut full_contents,
+    //             &mut execution_digests,
+    //             config,
+    //             state,
+    //             &epoch_store,
+    //             cache_reader,
+    //         );
+    //     }
+    //     full_checkpoint_contents = Some(full_contents);
+    // }
 
     let full_contents_txns: Option<HashMap<TransactionDigest, ExecutionData>> =
         full_checkpoint_contents.map(|c| {
@@ -1415,15 +1404,16 @@ async fn finalize_checkpoint(
 
 // ========== Sunfish Filtering ==========
 
+#[allow(unused)]
 fn apply_sparse_filters(
     full_contents: &mut FullCheckpointContents,
     execution_digests: &mut Vec<ExecutionDigests>,
-    config: SparseStateConfig,
+    config: SparseStatePredicates,
     state: &AuthorityState,
     epoch_store: &Arc<AuthorityPerEpochStore>,
     cache_reader: &dyn TransactionCacheRead,
 ) {
-    let SparseStateConfig {
+    let SparseStatePredicates {
         addresses,
         events,
         packages: _,
@@ -1455,6 +1445,7 @@ fn apply_sparse_filters(
 }
 
 // ========== Event Filtering ==========
+#[allow(unused)]
 pub fn filter_content_by_events<'r>(
     mut layout_resolver: Box<dyn LayoutResolver + 'r>,
     cache_reader: &dyn TransactionCacheRead,
@@ -1481,6 +1472,7 @@ pub fn filter_content_by_events<'r>(
     filtered_digests
 }
 
+#[allow(unused)]
 fn tx_matches_event_filters<'r>(
     layout_resolver: &mut Box<dyn LayoutResolver + 'r>,
     cache_reader: &dyn TransactionCacheRead,

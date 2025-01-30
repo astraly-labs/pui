@@ -143,6 +143,7 @@ where
             sequence_number_to_digest: HashMap::new(),
             wait_interval_when_no_peer_to_sync_content: config
                 .wait_interval_when_no_peer_to_sync_content(),
+            peers_sparse_state_predicates: HashMap::new(),
         }
         .pipe(RwLock::new)
         .pipe(Arc::new);
