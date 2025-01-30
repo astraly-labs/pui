@@ -369,7 +369,6 @@ impl ReadStore for ValidatorWithFullnode {
     fn get_sparse_checkpoint_contents(
         &self,
         _digest: &CheckpointContentsDigest,
-        _sparse_state_predicates: sui_types::sunfish::SparseStatePredicates,
     ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
         todo!()
     }

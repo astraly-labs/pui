@@ -1459,10 +1459,9 @@ where
             peer.inner().peer_id(),
         );
 
-        if let Some(sparse_predicates) = store.get_sparse_state_predicates() {
+        if store.get_sparse_state_predicates().is_some() {
             let request = Request::new(GetSparseStatePredicatesRequest {
                 checkpoint_digest: digest,
-                sparse_predicates,
             })
             .with_timeout(timeout);
             if let Some(contents) = peer

@@ -97,7 +97,6 @@ impl ReadStore for SharedInMemoryStore {
     fn get_sparse_checkpoint_contents(
         &self,
         _digest: &CheckpointContentsDigest,
-        _sparse_state_predicates: crate::sunfish::SparseStatePredicates,
     ) -> Option<FullCheckpointContents> {
         todo!("SUNFISH: Implement this!")
     }
@@ -515,10 +514,9 @@ impl ReadStore for SingleCheckpointSharedInMemoryStore {
     fn get_sparse_checkpoint_contents(
         &self,
         digest: &CheckpointContentsDigest,
-        sparse_state_predicates: crate::sunfish::SparseStatePredicates,
     ) -> Option<FullCheckpointContents> {
         self.0
-            .get_sparse_checkpoint_contents(digest, sparse_state_predicates)
+            .get_sparse_checkpoint_contents(digest)
     }
 
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {

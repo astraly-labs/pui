@@ -35,7 +35,6 @@ pub struct GetCheckpointAvailabilityResponse {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GetSparseStatePredicatesRequest {
     pub(crate) checkpoint_digest: CheckpointContentsDigest,
-    pub(crate) sparse_predicates: SparseStatePredicates,
 }
 
 pub(super) struct Server<S> {

@@ -1472,8 +1472,7 @@ pub fn filter_content_by_events<'r>(
     filtered_digests
 }
 
-#[allow(unused)]
-fn tx_matches_event_filters<'r>(
+pub fn tx_matches_event_filters<'r>(
     layout_resolver: &mut Box<dyn LayoutResolver + 'r>,
     cache_reader: &dyn TransactionCacheRead,
     tx: &ExecutionData,
