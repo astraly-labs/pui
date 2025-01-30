@@ -32,6 +32,8 @@ use sui_types::storage::RpcStateReader;
 use sui_types::storage::WriteStore;
 use sui_types::storage::{ObjectKey, ReadStore};
 use sui_types::sunfish::SparseStatePredicates;
+use sui_types::transaction::TransactionDataAPI;
+use sui_types::transaction::TransactionKind;
 use sui_types::transaction::VerifiedTransaction;
 use tap::Pipe;
 
@@ -198,7 +200,6 @@ impl ReadStore for RocksDbStore {
             })
     }
 
-    
     fn get_sparse_checkpoint_contents(
         &self,
         digest: &CheckpointContentsDigest,
@@ -239,18 +240,29 @@ impl ReadStore for RocksDbStore {
                             .transaction_cache_reader
                             .get_effects(&tx.effects),
                     ) {
-                        if let Some(predicates) = self.sparse_state_predicates.as_ref() {
-                            if predicates.matches_address(&t.sender_address()) {
-                                transactions.push(sui_types::base_types::ExecutionData::new(
-                                    (*t).clone().into_inner(),
-                                    e,
-                                ))
+                        // only filter programmable transactions as other txs are important to make the blockchain work
+                        match t.data().intent_message().value.kind() {
+                            TransactionKind::ProgrammableTransaction(_) => {
+                                if let Some(predicates) = self.sparse_state_predicates.as_ref() {
+                                    if predicates.matches_address(&t.sender_address()) {
+                                        transactions.push(
+                                            sui_types::base_types::ExecutionData::new(
+                                                (*t).clone().into_inner(),
+                                                e,
+                                            ),
+                                        )
+                                    }
+                                } else {
+                                    transactions.push(sui_types::base_types::ExecutionData::new(
+                                        (*t).clone().into_inner(),
+                                        e,
+                                    ))
+                                }
                             }
-                        } else {
-                            transactions.push(sui_types::base_types::ExecutionData::new(
+                            _ => transactions.push(sui_types::base_types::ExecutionData::new(
                                 (*t).clone().into_inner(),
                                 e,
-                            ))
+                            )),
                         }
                     } else {
                         return None;
@@ -527,7 +539,8 @@ impl ReadStore for RestReadStore {
         digest: &CheckpointContentsDigest,
         sparse_state_predicates: SparseStatePredicates,
     ) -> Option<FullCheckpointContents> {
-        self.rocks.get_sparse_checkpoint_contents(digest, sparse_state_predicates)
+        self.rocks
+            .get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
     fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
