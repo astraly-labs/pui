@@ -231,8 +231,7 @@ impl ReadStore for RocksDbStore {
             .and_then(|contents| {
                 let mut transactions = Vec::with_capacity(contents.size());
                 for tx in contents.iter() {
-
-                    // TODO(sunfish): Filter out unwanted transactions
+                    // Filter transactions for sparse nodes based on predicates
 
                     if let (Some(t), Some(e)) = (
                         self.get_transaction(&tx.transaction),
@@ -240,10 +239,19 @@ impl ReadStore for RocksDbStore {
                             .transaction_cache_reader
                             .get_effects(&tx.effects),
                     ) {
-                        transactions.push(sui_types::base_types::ExecutionData::new(
-                            (*t).clone().into_inner(),
-                            e,
-                        ))
+                        if let Some(predicates) = self.sparse_state_predicates.as_ref() {
+                            if predicates.matches_address(&t.sender_address()) {
+                                transactions.push(sui_types::base_types::ExecutionData::new(
+                                    (*t).clone().into_inner(),
+                                    e,
+                                ))
+                            }
+                        } else {
+                            transactions.push(sui_types::base_types::ExecutionData::new(
+                                (*t).clone().into_inner(),
+                                e,
+                            ))
+                        }
                     } else {
                         return None;
                     }
