@@ -12,7 +12,11 @@ pub struct SparseStatePredicates {
 
 impl SparseStatePredicates {
     /// Filter transactions based on the sparse state predicates
-    pub fn filter_transactions<T>(&self, transactions: &mut Vec<T>, tx_filter: impl Fn(&T) -> bool) {
+    pub fn filter_transactions<T>(
+        &self,
+        transactions: &mut Vec<T>,
+        tx_filter: impl Fn(&T) -> bool,
+    ) {
         if let Some(addresses) = &self.addresses {
             transactions.retain(|tx| tx_filter(tx));
         }
