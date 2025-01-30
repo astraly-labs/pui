@@ -139,9 +139,9 @@ where
         &self,
         _request: Request<()>,
     ) -> Result<Response<GetSparseStatePredicatesResponse>, Status> {
-        let contents = self.store.get_sparse_state_predicates();
+        let maybe_predicates = self.store.get_sparse_state_predicates();
         Ok(Response::new(GetSparseStatePredicatesResponse {
-            predicates: contents,
+            predicates: maybe_predicates,
         }))
     }
 }

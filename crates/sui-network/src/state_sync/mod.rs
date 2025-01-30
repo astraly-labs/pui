@@ -1287,6 +1287,9 @@ async fn sync_checkpoint_contents<S>(
                         store
                             .update_highest_synced_checkpoint(&checkpoint)
                             .expect("store operation should not fail");
+
+                        // TODO(sunfish): Filter the checkpoint content for sparse nodes and only send the relevant infos?
+
                         // We don't care if no one is listening as this is a broadcast channel
                         let _ = checkpoint_event_sender.send(checkpoint.clone());
                         tx_concurrency_remaining += checkpoint.network_total_transactions - highest_synced.network_total_transactions;
