@@ -548,6 +548,14 @@ impl<T, V: store::SimulatorStore> ReadStore for Simulacrum<T, V> {
         todo!()
     }
 
+    fn get_sparse_checkpoint_contents(
+        &self,
+        _digest: &sui_types::digests::CheckpointContentsDigest,
+        _sparse_state_predicates: sui_types::sunfish::SparseStatePredicates,
+    ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
+        todo!()
+    }
+
     fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
         None
     }

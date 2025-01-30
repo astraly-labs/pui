@@ -154,6 +154,8 @@ pub struct BuilderCheckpointSummary {
 
 #[derive(DBMapUtils)]
 pub struct CheckpointStore {
+    /// TODO(sunfish): Map sparse checkpoint content digest to original checkpoint content digest?
+
     /// Maps checkpoint contents digest to checkpoint contents
     pub(crate) checkpoint_content: DBMap<CheckpointContentsDigest, CheckpointContents>,
 

@@ -198,6 +198,63 @@ impl ReadStore for RocksDbStore {
             })
     }
 
+    
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        _sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<FullCheckpointContents> {
+        // First look to see if we saved the complete contents already.
+        // TODO(sunfish): Check if we already stored the sparse content
+        // if let Some(seq_num) = self
+        //     .checkpoint_store
+        //     .get_sequence_number_by_contents_digest(digest)
+        //     .expect("db error")
+        // {
+        //     let contents = self
+        //         .checkpoint_store
+        //         .get_full_checkpoint_contents_by_sequence_number(seq_num)
+        //         .expect("db error");
+        //     if contents.is_some() {
+        //         return contents;
+        //     }
+        // }
+
+        // Otherwise gather it from the individual components.
+        // Note we can't insert the constructed contents into `full_checkpoint_content`,
+        // because it needs to be inserted along with `checkpoint_sequence_by_contents_digest`
+        // and `checkpoint_content`. However at this point it's likely we don't know the
+        // corresponding sequence number yet.
+        self.checkpoint_store
+            .get_checkpoint_contents(digest)
+            .expect("db error")
+            .and_then(|contents| {
+                let mut transactions = Vec::with_capacity(contents.size());
+                for tx in contents.iter() {
+
+                    // TODO(sunfish): Filter out unwanted transactions
+
+                    if let (Some(t), Some(e)) = (
+                        self.get_transaction(&tx.transaction),
+                        self.cache_traits
+                            .transaction_cache_reader
+                            .get_effects(&tx.effects),
+                    ) {
+                        transactions.push(sui_types::base_types::ExecutionData::new(
+                            (*t).clone().into_inner(),
+                            e,
+                        ))
+                    } else {
+                        return None;
+                    }
+                }
+                Some(FullCheckpointContents::from_contents_and_execution_data(
+                    contents,
+                    transactions.into_iter(),
+                ))
+            })
+    }
+
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {
         self.committee_store.get_committee(&epoch).unwrap()
     }
@@ -455,6 +512,14 @@ impl ReadStore for RestReadStore {
         digest: &CheckpointContentsDigest,
     ) -> Option<FullCheckpointContents> {
         self.rocks.get_full_checkpoint_contents(digest)
+    }
+
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<FullCheckpointContents> {
+        self.rocks.get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
     fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {

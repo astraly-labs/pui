@@ -32,6 +32,12 @@ pub struct GetCheckpointAvailabilityResponse {
     pub(crate) lowest_available_checkpoint: CheckpointSequenceNumber,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GetSparseStatePredicatesRequest {
+    pub(crate) checkpoint_digest: CheckpointContentsDigest,
+    pub(crate) sparse_predicates: SparseStatePredicates,
+}
+
 pub(super) struct Server<S> {
     pub(super) store: S,
     pub(super) peer_heights: Arc<RwLock<PeerHeights>>,
@@ -127,6 +133,13 @@ where
     ) -> Result<Response<Option<FullCheckpointContents>>, Status> {
         let contents = self.store.get_full_checkpoint_contents(request.inner());
         Ok(Response::new(contents))
+    }
+
+    async fn get_sparse_checkpoint_contents(
+        &self,
+        _request: Request<GetSparseStatePredicatesRequest>,
+    ) -> Result<Response<Option<FullCheckpointContents>>, Status> {
+        Ok(Response::new(None))
     }
 
     async fn get_sparse_state_predicates(

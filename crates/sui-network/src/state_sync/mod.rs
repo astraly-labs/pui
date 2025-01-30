@@ -50,6 +50,7 @@
 use anemo::{types::PeerEvent, PeerId, Request, Response, Result};
 use futures::{stream::FuturesOrdered, FutureExt, StreamExt};
 use rand::Rng;
+use server::GetSparseStatePredicatesRequest;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{
     collections::{HashMap, VecDeque},
@@ -436,7 +437,6 @@ where
 
         let mut interval = tokio::time::interval(self.config.interval_period());
 
-        // TODO(sunfish): Handle those first peer events
         let mut peer_events = {
             let (subscriber, peers) = self.network.subscribe().unwrap();
             for peer_id in peers {
@@ -1309,7 +1309,6 @@ async fn sync_checkpoint_contents<S>(
                             .update_highest_synced_checkpoint(&checkpoint)
                             .expect("store operation should not fail");
 
-                        // TODO(sunfish): Filter the checkpoint content for sparse nodes and only send the relevant infos?
                         // We don't care if no one is listening as this is a broadcast channel
                         let _ = checkpoint_event_sender.send(checkpoint.clone());
                         tx_concurrency_remaining += checkpoint.network_total_transactions - highest_synced.network_total_transactions;
@@ -1459,21 +1458,45 @@ where
             "requesting checkpoint contents from {}",
             peer.inner().peer_id(),
         );
-        let request = Request::new(digest).with_timeout(timeout);
-        if let Some(contents) = peer
-            .get_checkpoint_contents(request)
-            .await
-            .tap_err(|e| trace!("{e:?}"))
-            .ok()
-            .and_then(Response::into_inner)
-            .tap_none(|| trace!("peer unable to help sync"))
-        {
-            if contents.verify_digests(digest).is_ok() {
+
+        if let Some(sparse_predicates) = store.get_sparse_state_predicates() {
+            let request = Request::new(GetSparseStatePredicatesRequest {
+                checkpoint_digest: digest,
+                sparse_predicates,
+            })
+            .with_timeout(timeout);
+            if let Some(contents) = peer
+                .get_sparse_checkpoint_contents(request)
+                .await
+                .tap_err(|e| trace!("{e:?}"))
+                .ok()
+                .and_then(Response::into_inner)
+                .tap_none(|| trace!("peer unable to help sync"))
+            {
                 let verified_contents = VerifiedCheckpointContents::new_unchecked(contents.clone());
                 store
                     .insert_checkpoint_contents(checkpoint, verified_contents)
                     .expect("store operation should not fail");
                 return Some(contents);
+            }
+        } else {
+            let request = Request::new(digest).with_timeout(timeout);
+            if let Some(contents) = peer
+                .get_checkpoint_contents(request)
+                .await
+                .tap_err(|e| trace!("{e:?}"))
+                .ok()
+                .and_then(Response::into_inner)
+                .tap_none(|| trace!("peer unable to help sync"))
+            {
+                if contents.verify_digests(digest).is_ok() {
+                    let verified_contents =
+                        VerifiedCheckpointContents::new_unchecked(contents.clone());
+                    store
+                        .insert_checkpoint_contents(checkpoint, verified_contents)
+                        .expect("store operation should not fail");
+                    return Some(contents);
+                }
             }
         }
     }

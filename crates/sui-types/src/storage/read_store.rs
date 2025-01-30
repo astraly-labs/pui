@@ -154,6 +154,15 @@ pub trait ReadStore: ObjectStore {
         digest: &CheckpointContentsDigest,
     ) -> Option<FullCheckpointContents>;
 
+    /// Get a "sparse" checkpoint for purposes of state-sync
+    /// "sparse" checkpoints include: header, contents, transactions, effects
+    /// that matches the given sparse node predicates
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<FullCheckpointContents>;
+
     // Fetch all checkpoint data
     // TODO fix return type to not be anyhow
     fn get_checkpoint_data(
@@ -376,6 +385,14 @@ impl<T: ReadStore + ?Sized> ReadStore for &T {
         (*self).get_full_checkpoint_contents(digest)
     }
 
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<FullCheckpointContents> {
+        (*self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
+    }
+
     fn get_checkpoint_data(
         &self,
         checkpoint: VerifiedCheckpoint,
@@ -490,6 +507,14 @@ impl<T: ReadStore + ?Sized> ReadStore for Box<T> {
         (**self).get_full_checkpoint_contents(digest)
     }
 
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<FullCheckpointContents> {
+        (**self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
+    }
+
     fn get_checkpoint_data(
         &self,
         checkpoint: VerifiedCheckpoint,
@@ -602,6 +627,14 @@ impl<T: ReadStore + ?Sized> ReadStore for Arc<T> {
         digest: &CheckpointContentsDigest,
     ) -> Option<FullCheckpointContents> {
         (**self).get_full_checkpoint_contents(digest)
+    }
+
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<FullCheckpointContents> {
+        (**self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
     fn get_checkpoint_data(
