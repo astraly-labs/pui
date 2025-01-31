@@ -773,8 +773,6 @@ impl SuiNode {
         let (end_of_epoch_channel, end_of_epoch_receiver) =
             broadcast::channel(config.end_of_epoch_broadcast_channel_capacity);
 
-        // TODO(sunfish): Check that - probably only for full nodes? For sparse node, we
-        // have just one validator & we verify
         let transaction_orchestrator = if is_node && run_with_range.is_none() {
             Some(Arc::new(
                 TransactiondOrchestrator::new_with_auth_aggregator(

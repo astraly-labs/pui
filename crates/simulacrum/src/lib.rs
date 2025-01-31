@@ -31,6 +31,7 @@ use sui_types::messages_consensus::ConsensusDeterminedVersionAssignments;
 use sui_types::object::Object;
 use sui_types::storage::{ObjectStore, ReadStore, RpcStateReader};
 use sui_types::sui_system_state::epoch_start_sui_system_state::EpochStartSystemState;
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::transaction::EndOfEpochTransactionKind;
 use sui_types::{
     base_types::SuiAddress,
@@ -551,7 +552,7 @@ impl<T, V: store::SimulatorStore> ReadStore for Simulacrum<T, V> {
     fn get_sparse_checkpoint_contents(
         &self,
         _digest: &sui_types::digests::CheckpointContentsDigest,
-        _sparse_state_predicates: sui_types::sunfish::SparseStatePredicates,
+        _sparse_state_predicates: SparseStatePredicates,
     ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
         todo!()
     }

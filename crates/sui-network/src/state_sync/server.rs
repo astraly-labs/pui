@@ -35,6 +35,7 @@ pub struct GetCheckpointAvailabilityResponse {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GetSparseStatePredicatesRequest {
     pub(crate) checkpoint_digest: CheckpointContentsDigest,
+    pub(crate) sparse_state_predicates: SparseStatePredicates,
 }
 
 pub(super) struct Server<S> {
@@ -136,9 +137,14 @@ where
 
     async fn get_sparse_checkpoint_contents(
         &self,
-        _request: Request<GetSparseStatePredicatesRequest>,
+        request: Request<GetSparseStatePredicatesRequest>,
     ) -> Result<Response<Option<FullCheckpointContents>>, Status> {
-        Ok(Response::new(None))
+        let inner_request = request.inner();
+        let contents = self.store.get_sparse_checkpoint_contents(
+            &inner_request.checkpoint_digest,
+            inner_request.sparse_state_predicates.clone(),
+        );
+        Ok(Response::new(contents))
     }
 
     async fn get_sparse_state_predicates(

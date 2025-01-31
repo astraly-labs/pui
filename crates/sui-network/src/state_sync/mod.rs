@@ -1442,13 +1442,15 @@ where
     S: WriteStore,
 {
     let digest = checkpoint.content_digest;
-    if let Some(contents) = store
-        .get_full_checkpoint_contents_by_sequence_number(*checkpoint.sequence_number())
-        .or_else(|| store.get_full_checkpoint_contents(&digest))
-    {
-        debug!("store already contains checkpoint contents");
-        return Some(contents);
-    }
+
+    // TODO(sunfish): Re-activate this code later (allows to lazy load a checkpoint if already in the store)
+    // if let Some(contents) = store
+    //     .get_full_checkpoint_contents_by_sequence_number(*checkpoint.sequence_number())
+    //     .or_else(|| store.get_full_checkpoint_contents(&digest))
+    // {
+    //     debug!("store already contains checkpoint contents");
+    //     return Some(contents);
+    // }
 
     // Iterate through our selected peers trying each one in turn until we're able to
     // successfully get the target checkpoint
@@ -1459,9 +1461,10 @@ where
             peer.inner().peer_id(),
         );
 
-        if store.get_sparse_state_predicates().is_some() {
+        if let Some(predicates) = store.get_sparse_state_predicates() {
             let request = Request::new(GetSparseStatePredicatesRequest {
                 checkpoint_digest: digest,
+                sparse_state_predicates: predicates,
             })
             .with_timeout(timeout);
             if let Some(contents) = peer

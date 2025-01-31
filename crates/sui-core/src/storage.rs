@@ -37,9 +37,7 @@ use sui_types::transaction::TransactionKind;
 use sui_types::transaction::VerifiedTransaction;
 use tap::Pipe;
 
-use crate::authority::authority_per_epoch_store::AuthorityPerEpochStore;
 use crate::authority::AuthorityState;
-use crate::checkpoints::checkpoint_executor::tx_matches_event_filters;
 use crate::checkpoints::CheckpointStore;
 use crate::epoch::committee_store::CommitteeStore;
 use crate::execution_cache::ExecutionCacheTraitPointers;
@@ -205,52 +203,53 @@ impl ReadStore for RocksDbStore {
     fn get_sparse_checkpoint_contents(
         &self,
         digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
     ) -> Option<FullCheckpointContents> {
-        self.checkpoint_store
+        let contents = self
+            .checkpoint_store
             .get_checkpoint_contents(digest)
-            .expect("db error")
-            .and_then(|contents| {
-                let mut transactions = Vec::with_capacity(contents.size());
-                for tx in contents.iter() {
-                    if let (Some(t), Some(e)) = (
-                        self.get_transaction(&tx.transaction),
-                        self.cache_traits
-                            .transaction_cache_reader
-                            .get_effects(&tx.effects),
-                    ) {
-                        if let Some(predicates) = self.sparse_state_predicates.as_ref() {
-                            // only filter programmable transactions as other txs are important to make the blockchain work
-                            match t.data().intent_message().value.kind() {
-                                TransactionKind::ProgrammableTransaction(_) => {
-                                    if predicates.matches_address(&t.sender_address()) {
-                                        transactions.push(
-                                            sui_types::base_types::ExecutionData::new(
-                                                (*t).clone().into_inner(),
-                                                e,
-                                            ),
-                                        )
-                                    }
-                                }
-                                _ => transactions.push(sui_types::base_types::ExecutionData::new(
-                                    (*t).clone().into_inner(),
-                                    e,
-                                )),
-                            }
-                        } else {
-                            transactions.push(sui_types::base_types::ExecutionData::new(
-                                (*t).clone().into_inner(),
-                                e,
-                            ));
-                        }
-                    } else {
-                        return None;
+            .expect("db error")?;
+
+        let mut sparse_transactions = Vec::with_capacity(contents.size());
+
+        for exec_digests in contents.iter() {
+            let tx = self.get_transaction(&exec_digests.transaction)?;
+            let effects = self
+                .cache_traits
+                .transaction_cache_reader
+                .get_effects(&exec_digests.effects)?;
+
+            let should_include = {
+                match tx.data().intent_message().value.kind() {
+                    // Filter only programmable transactions based on address
+                    TransactionKind::ProgrammableTransaction(_) => {
+                        sparse_state_predicates.matches_address(&tx.sender_address())
+                        // TODO(sunfish): Filter based on the tx events
                     }
+                    // Include all non-programmable transactions
+                    _ => true,
                 }
-                Some(FullCheckpointContents::from_contents_and_execution_data(
-                    contents,
-                    transactions.into_iter(),
-                ))
-            })
+            };
+
+            // TODO(sunfish): A tx has a `dependencies` field that we should also include
+            // (or retro-include for earlier checkpoint?). Check that.
+            // (It contains the txs that must be included because they're directly needed in order
+            // for this tx to be valid. Example, it created a storage that in this tx we modify.)
+
+            if should_include {
+                sparse_transactions.push(sui_types::base_types::ExecutionData::new(
+                    (*tx).clone().into_inner(),
+                    effects,
+                ));
+            } else {
+                tracing::info!("[🌅🐟] Ignoring TX with sender {}", tx.sender_address());
+            }
+        }
+
+        Some(FullCheckpointContents::from_contents_and_execution_data(
+            contents,
+            sparse_transactions.into_iter(),
+        ))
     }
 
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {
@@ -515,9 +514,10 @@ impl ReadStore for RestReadStore {
     fn get_sparse_checkpoint_contents(
         &self,
         digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
     ) -> Option<FullCheckpointContents> {
         self.rocks
-            .get_sparse_checkpoint_contents(digest)
+            .get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
     fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {

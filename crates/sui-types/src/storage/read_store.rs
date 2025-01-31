@@ -160,6 +160,7 @@ pub trait ReadStore: ObjectStore {
     fn get_sparse_checkpoint_contents(
         &self,
         digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
     ) -> Option<FullCheckpointContents>;
 
     // Fetch all checkpoint data
@@ -387,8 +388,9 @@ impl<T: ReadStore + ?Sized> ReadStore for &T {
     fn get_sparse_checkpoint_contents(
         &self,
         digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
     ) -> Option<FullCheckpointContents> {
-        (*self).get_sparse_checkpoint_contents(digest)
+        (*self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
     fn get_checkpoint_data(
@@ -508,8 +510,9 @@ impl<T: ReadStore + ?Sized> ReadStore for Box<T> {
     fn get_sparse_checkpoint_contents(
         &self,
         digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
     ) -> Option<FullCheckpointContents> {
-        (**self).get_sparse_checkpoint_contents(digest)
+        (**self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
     fn get_checkpoint_data(
@@ -629,8 +632,9 @@ impl<T: ReadStore + ?Sized> ReadStore for Arc<T> {
     fn get_sparse_checkpoint_contents(
         &self,
         digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
     ) -> Option<FullCheckpointContents> {
-        (**self).get_sparse_checkpoint_contents(digest)
+        (**self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
     fn get_checkpoint_data(

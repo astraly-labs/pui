@@ -12,6 +12,7 @@ use crate::messages_checkpoint::{
     VerifiedCheckpointContents,
 };
 use crate::storage::{ReadStore, WriteStore};
+use crate::sunfish::SparseStatePredicates;
 use crate::transaction::VerifiedTransaction;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -97,6 +98,7 @@ impl ReadStore for SharedInMemoryStore {
     fn get_sparse_checkpoint_contents(
         &self,
         _digest: &CheckpointContentsDigest,
+        _sparse_state_predicates: SparseStatePredicates,
     ) -> Option<FullCheckpointContents> {
         todo!("SUNFISH: Implement this!")
     }
@@ -514,9 +516,10 @@ impl ReadStore for SingleCheckpointSharedInMemoryStore {
     fn get_sparse_checkpoint_contents(
         &self,
         digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
     ) -> Option<FullCheckpointContents> {
         self.0
-            .get_sparse_checkpoint_contents(digest)
+            .get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {
