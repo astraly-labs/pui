@@ -11,7 +11,7 @@ use crate::messages_checkpoint::{
     CheckpointContents, CheckpointSequenceNumber, FullCheckpointContents, VerifiedCheckpoint,
     VerifiedCheckpointContents,
 };
-use crate::storage::{ReadStore, WriteStore};
+use crate::storage::{ExExStore, ReadStore, WriteStore};
 use crate::sunfish::SparseStatePredicates;
 use crate::transaction::VerifiedTransaction;
 use std::collections::HashMap;
@@ -203,6 +203,8 @@ impl SharedInMemoryStore {
         self.inner_mut().insert_certified_checkpoint(checkpoint);
     }
 }
+
+impl ExExStore for SharedInMemoryStore {}
 
 #[derive(Debug, Default)]
 pub struct InMemoryStore {

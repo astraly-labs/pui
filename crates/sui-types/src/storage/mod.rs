@@ -688,3 +688,4 @@ where
         self
     }
 }
+pub trait ExExStore: ObjectStore + WriteStore + ReadStore + Send + Sync {}

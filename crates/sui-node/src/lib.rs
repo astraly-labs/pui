@@ -13,6 +13,7 @@ use arc_swap::ArcSwap;
 use fastcrypto_zkp::bn254::zk_login::JwkId;
 use fastcrypto_zkp::bn254::zk_login::OIDCProvider;
 use futures::TryFutureExt;
+use mysten_common::debug_fatal;
 use mysten_network::server::SUI_TLS_SERVER_NAME;
 use prometheus::Registry;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -23,7 +24,9 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
-use sui_core::authority::authority_store_tables::AuthorityPerpetualTablesOptions;
+use sui_core::authority::authority_store_tables::{
+    AuthorityPerpetualTablesOptions, AuthorityPrunerTables,
+};
 use sui_core::authority::backpressure::BackpressureManager;
 use sui_core::authority::epoch_start_configuration::EpochFlag;
 use sui_core::authority::RandomnessRoundReceiver;
@@ -38,12 +41,17 @@ use sui_exex::{BoxedLaunchExEx, ExExManagerHandle};
 use sui_json_rpc::bridge_api::BridgeReadApi;
 use sui_json_rpc_api::JsonRpcMetrics;
 use sui_network::randomness;
+use sui_rpc_api::subscription::SubscriptionService;
 use sui_rpc_api::RpcMetrics;
 use sui_types::base_types::ConciseableName;
 use sui_types::crypto::RandomnessRound;
 use sui_types::digests::ChainIdentifier;
+use sui_types::executable_transaction::VerifiedExecutableTransaction;
+use sui_types::full_checkpoint_content::CheckpointData;
 use sui_types::messages_consensus::AuthorityCapabilitiesV2;
+use sui_types::messages_consensus::ConsensusTransactionKind;
 use sui_types::sui_system_state::SuiSystemState;
+use sui_types::transaction::VerifiedCertificate;
 use tap::tap::TapFallible;
 use tokio::runtime::Handle;
 use tokio::sync::{broadcast, mpsc, watch, Mutex};
@@ -219,6 +227,7 @@ mod simulator {
 pub use simulator::set_jwk_injector;
 #[cfg(msim)]
 use simulator::*;
+use sui_core::authority::authority_store_pruner::ObjectsCompactionFilter;
 use sui_core::{
     consensus_handler::ConsensusHandlerInitializer, safe_client::SafeClientMetricsBase,
     validator_tx_finalizer::ValidatorTxFinalizer,
@@ -268,6 +277,7 @@ pub struct SuiNode {
     // update will automatically propagate to other uses.
     auth_agg: Arc<ArcSwap<AuthorityAggregator<NetworkAuthorityClient>>>,
 
+    subscription_service_checkpoint_sender: Option<tokio::sync::mpsc::Sender<CheckpointData>>,
     exex_manager: Option<ExExManagerHandle>,
 }
 
@@ -478,9 +488,25 @@ impl SuiNode {
             None,
         ));
 
+        let mut pruner_db = None;
+        if config
+            .authority_store_pruning_config
+            .enable_compaction_filter
+        {
+            pruner_db = Some(Arc::new(AuthorityPrunerTables::open(
+                &config.db_path().join("store"),
+            )));
+        }
+        let compaction_filter = pruner_db
+            .clone()
+            .map(|db| ObjectsCompactionFilter::new(db, &prometheus_registry));
+
         // By default, only enable write stall on validators for perpetual db.
         let enable_write_stall = config.enable_db_write_stall.unwrap_or(is_validator);
-        let perpetual_tables_options = AuthorityPerpetualTablesOptions { enable_write_stall };
+        let perpetual_tables_options = AuthorityPerpetualTablesOptions {
+            enable_write_stall,
+            compaction_filter,
+        };
         let perpetual_tables = Arc::new(AuthorityPerpetualTables::open(
             &config.db_path().join("store"),
             Some(perpetual_tables_options),
@@ -730,6 +756,7 @@ impl SuiNode {
             archive_readers,
             validator_tx_finalizer,
             chain_identifier,
+            pruner_db,
         )
         .await;
         // ensure genesis txn was executed
@@ -787,7 +814,7 @@ impl SuiNode {
             None
         };
 
-        let http_server = build_http_server(
+        let (http_server, subscription_service_checkpoint_sender) = build_http_server(
             state.clone(),
             state_sync_store.clone(),
             &transaction_orchestrator.clone(),
@@ -841,6 +868,8 @@ impl SuiNode {
         };
 
         let validator_components = if state.is_validator(&epoch_store) {
+            Self::reexecute_pending_consensus_certs(&epoch_store, &state).await;
+
             let components = Self::construct_validator_components(
                 config.clone(),
                 state.clone(),
@@ -897,6 +926,7 @@ impl SuiNode {
             shutdown_channel_tx: shutdown_channel,
 
             auth_agg,
+            subscription_service_checkpoint_sender,
             exex_manager,
         };
 
@@ -1335,7 +1365,7 @@ impl SuiNode {
         sui_node_metrics: Arc<SuiNodeMetrics>,
         sui_tx_validator_metrics: Arc<SuiTxValidatorMetrics>,
     ) -> Result<ValidatorComponents> {
-        let checkpoint_service = Self::start_checkpoint_service(
+        let checkpoint_service = Self::build_checkpoint_service(
             config,
             consensus_adapter.clone(),
             checkpoint_store,
@@ -1431,7 +1461,7 @@ impl SuiNode {
         })
     }
 
-    fn start_checkpoint_service(
+    fn build_checkpoint_service(
         config: &NodeConfig,
         consensus_adapter: Arc<ConsensusAdapter>,
         checkpoint_store: Arc<CheckpointStore>,
@@ -1542,6 +1572,67 @@ impl SuiNode {
         Ok(grpc_server)
     }
 
+    async fn reexecute_pending_consensus_certs(
+        epoch_store: &Arc<AuthorityPerEpochStore>,
+        state: &Arc<AuthorityState>,
+    ) {
+        let pending_consensus_certificates = epoch_store
+            .get_all_pending_consensus_transactions()
+            .into_iter()
+            .filter_map(|tx| {
+                match tx.kind {
+                    // shared object txns will be re-executed by consensus replay
+                    ConsensusTransactionKind::CertifiedTransaction(tx)
+                        if !tx.contains_shared_object() =>
+                    {
+                        let tx = *tx;
+                        // we only need to re-execute if we previously signed the effects (which indicates we
+                        // returned the effects to a client).
+                        if let Some(fx_digest) = epoch_store
+                            .get_signed_effects_digest(tx.digest())
+                            .expect("db error")
+                        {
+                            // new_unchecked is safe because we never submit a transaction to consensus
+                            // without verifying it
+                            let tx = VerifiedExecutableTransaction::new_from_certificate(
+                                VerifiedCertificate::new_unchecked(tx),
+                            );
+                            Some((tx, fx_digest))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let digests = pending_consensus_certificates
+            .iter()
+            .map(|(tx, _)| *tx.digest())
+            .collect::<Vec<_>>();
+
+        info!("reexecuting pending consensus certificates: {:?}", digests);
+
+        state.enqueue_with_expected_effects_digest(pending_consensus_certificates, epoch_store);
+
+        // If this times out, the validator will still almost certainly start up fine. But, it is
+        // possible that it may temporarily "forget" about transactions that it had previously
+        // executed. This could confuse clients in some circumstances. However, the transactions
+        // are still in pending_consensus_certificates, so we cannot lose any finality guarantees.
+        if tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            state
+                .get_transaction_cache_reader()
+                .notify_read_executed_effects_digests(&digests),
+        )
+        .await
+        .is_err()
+        {
+            debug_fatal!("Timed out waiting for effects digests to be executed");
+        }
+    }
+
     pub fn state(&self) -> Arc<AuthorityState> {
         self.state.clone()
     }
@@ -1606,6 +1697,7 @@ impl SuiNode {
                 self.backpressure_manager.clone(),
                 self.config.checkpoint_executor_config.clone(),
                 checkpoint_executor_metrics.clone(),
+                self.subscription_service_checkpoint_sender.clone(),
                 self.exex_manager.clone(),
             );
 
@@ -2056,10 +2148,13 @@ pub async fn build_http_server(
     prometheus_registry: &Registry,
     _custom_runtime: Option<Handle>,
     software_version: &'static str,
-) -> Result<Option<sui_http::ServerHandle>> {
+) -> Result<(
+    Option<sui_http::ServerHandle>,
+    Option<tokio::sync::mpsc::Sender<CheckpointData>>,
+)> {
     // Validators do not expose these APIs
     if config.consensus_config().is_some() {
-        return Ok(None);
+        return Ok((None, None));
     }
 
     let mut router = axum::Router::new();
@@ -2138,6 +2233,8 @@ pub async fn build_http_server(
 
     router = router.merge(json_rpc_router);
 
+    let (subscription_service_checkpoint_sender, subscription_service_handle) =
+        SubscriptionService::build(prometheus_registry);
     let rpc_router = {
         let mut rpc_service = sui_rpc_api::RpcService::new(
             Arc::new(RestReadStore::new(state.clone(), store)),
@@ -2149,6 +2246,7 @@ pub async fn build_http_server(
         }
 
         rpc_service.with_metrics(RpcMetrics::new(prometheus_registry));
+        rpc_service.with_subscription_service(subscription_service_handle);
 
         if let Some(transaction_orchestrator) = transaction_orchestrator {
             rpc_service.with_executor(transaction_orchestrator.clone())
@@ -2175,7 +2273,7 @@ pub async fn build_http_server(
 
     info!(local_addr =? handle.local_addr(), "Sui JSON-RPC server listening on {}", handle.local_addr());
 
-    Ok(Some(handle))
+    Ok((Some(handle), Some(subscription_service_checkpoint_sender)))
 }
 
 #[cfg(not(test))]

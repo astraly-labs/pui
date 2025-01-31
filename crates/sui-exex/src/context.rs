@@ -2,16 +2,10 @@ use std::sync::Arc;
 
 use mysten_metrics::monitored_mpsc::UnboundedSender;
 use sui_network::state_sync;
-use sui_types::{
-    messages_checkpoint::CheckpointSequenceNumber,
-    storage::{ObjectStore, ReadStore, WriteStore},
-};
+use sui_types::messages_checkpoint::CheckpointSequenceNumber;
+use sui_types::storage::ExExStore;
 
 use crate::{notification::ExExNotifications, ExExEvent};
-
-// We can't directly import the `RocksDbStore` object from `sui-core` so we create this trait
-// to describe the ExEx Storage instead.
-pub trait ExExStore: ObjectStore + WriteStore + ReadStore + Send + Sync {}
 
 /// Captures the context that an `ExEx` has access to.
 pub struct ExExContext {

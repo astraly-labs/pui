@@ -138,7 +138,7 @@ impl Handle {
 }
 
 #[derive(Debug)]
-struct PeerHeights {
+pub struct PeerHeights {
     /// Table used to track the highest checkpoint for each of our peers.
     peers: HashMap<PeerId, PeerStateSyncInfo>,
     unprocessed_checkpoints: HashMap<CheckpointDigest, Checkpoint>,
@@ -155,7 +155,7 @@ struct PeerHeights {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-struct PeerStateSyncInfo {
+pub struct PeerStateSyncInfo {
     /// The digest of the Peer's genesis checkpoint.
     genesis_checkpoint_digest: CheckpointDigest,
     /// Indicates if this Peer is on the same chain as us.
@@ -389,7 +389,7 @@ impl Iterator for PeerBalancer {
 }
 
 #[derive(Clone, Debug)]
-enum StateSyncMessage {
+pub enum StateSyncMessage {
     StartSyncJob,
     // Validators will send this to the StateSyncEventLoop in order to kick off notifying our peers
     // of the new checkpoint.

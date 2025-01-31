@@ -39,7 +39,7 @@ pub struct GetSparseStatePredicatesRequest {
     pub(crate) sparse_state_predicates: SparseStatePredicates,
 }
 
-pub(super) struct Server<S> {
+pub struct Server<S> {
     pub(super) store: S,
     pub(super) peer_heights: Arc<RwLock<PeerHeights>>,
     pub(super) sender: mpsc::WeakSender<StateSyncMessage>,
@@ -160,7 +160,7 @@ where
 /// [`Layer`] for adding a per-checkpoint limit to the number of inflight GetCheckpointContent
 /// requests.
 #[derive(Clone)]
-pub(super) struct CheckpointContentsDownloadLimitLayer {
+pub struct CheckpointContentsDownloadLimitLayer {
     inflight_per_checkpoint: Arc<DashMap<CheckpointContentsDigest, Arc<Semaphore>>>,
     max_inflight_per_checkpoint: usize,
 }
@@ -198,7 +198,7 @@ impl<S> tower::layer::Layer<S> for CheckpointContentsDownloadLimitLayer {
 /// Middleware for adding a per-checkpoint limit to the number of inflight GetCheckpointContent
 /// requests.
 #[derive(Clone)]
-pub(super) struct CheckpointContentsDownloadLimit<S> {
+pub struct CheckpointContentsDownloadLimit<S> {
     inner: S,
     inflight_per_checkpoint: Arc<DashMap<CheckpointContentsDigest, Arc<Semaphore>>>,
     max_inflight_per_checkpoint: usize,

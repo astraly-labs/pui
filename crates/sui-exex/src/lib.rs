@@ -11,6 +11,7 @@ pub mod head;
 pub mod launcher;
 pub mod manager;
 pub mod notification;
+pub mod test_utils;
 pub mod utils;
 
 pub use context::ExExContext;

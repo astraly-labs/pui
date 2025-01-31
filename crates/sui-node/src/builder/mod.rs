@@ -1,6 +1,7 @@
 use crate::SuiNode;
 use crate::SuiNodeHandle;
 
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -8,6 +9,7 @@ use sui_config::Config;
 use sui_config::NodeConfig;
 use sui_core::runtime::SuiRuntimes;
 use sui_exex::BoxedLaunchExEx;
+use sui_exex::ExExContext;
 use sui_types::sunfish::SparseStatePredicates;
 use sui_types::supported_protocol_versions::SupportedProtocolVersions;
 use tracing::info;
@@ -37,8 +39,13 @@ impl NodeBuilder {
         self
     }
 
-    pub fn with_exex(mut self, name: &str, exex: Box<dyn BoxedLaunchExEx>) -> Self {
-        self.exexes.push((String::from(name), exex));
+    pub fn with_exex<F, Fut, E>(mut self, name: &str, exex: F) -> Self
+    where
+        F: FnOnce(ExExContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = anyhow::Result<E>> + Send + 'static,
+        E: Future<Output = anyhow::Result<()>> + Send + 'static,
+    {
+        self.exexes.push((String::from(name), Box::new(exex)));
         self
     }
 
