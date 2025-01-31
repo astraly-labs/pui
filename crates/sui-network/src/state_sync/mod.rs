@@ -1482,7 +1482,13 @@ where
 
                 // If the checkpoint miss some transactions dependencies, we retro-include them
                 // by asking them from the peer
-                if !missing_txs.is_empty() {}
+                if !missing_txs.is_empty() {
+                    // TODO: implement this.
+                    // Few points being:
+                    // * how to easily retrieve the checkpoint corresponding to a tx digest?
+                    // * we will need to update an already stored checkpoint, so add the tx + the effects and
+                    //   update the checkpoint digest.
+                }
 
                 return Some(contents);
             }
