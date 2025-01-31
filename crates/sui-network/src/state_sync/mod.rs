@@ -1443,14 +1443,13 @@ where
 {
     let digest = checkpoint.content_digest;
 
-    // TODO(sunfish): Re-activate this code later (allows to lazy load a checkpoint if already in the store)
-    // if let Some(contents) = store
-    //     .get_full_checkpoint_contents_by_sequence_number(*checkpoint.sequence_number())
-    //     .or_else(|| store.get_full_checkpoint_contents(&digest))
-    // {
-    //     debug!("store already contains checkpoint contents");
-    //     return Some(contents);
-    // }
+    if let Some(contents) = store
+        .get_full_checkpoint_contents_by_sequence_number(*checkpoint.sequence_number())
+        .or_else(|| store.get_full_checkpoint_contents(&digest))
+    {
+        debug!("store already contains checkpoint contents");
+        return Some(contents);
+    }
 
     // Iterate through our selected peers trying each one in turn until we're able to
     // successfully get the target checkpoint
@@ -1483,7 +1482,7 @@ where
                 // If the checkpoint miss some transactions dependencies, we retro-include them
                 // by asking them from the peer
                 if !missing_txs.is_empty() {
-                    // TODO: implement this.
+                    // TODO(sunfish): implement this.
                     // Few points being:
                     // * how to easily retrieve the checkpoint corresponding to a tx digest?
                     // * we will need to update an already stored checkpoint, so add the tx + the effects and
