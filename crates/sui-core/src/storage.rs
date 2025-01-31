@@ -33,8 +33,6 @@ use sui_types::storage::RpcStateReader;
 use sui_types::storage::WriteStore;
 use sui_types::storage::{ExExStore, ObjectKey, ReadStore};
 use sui_types::sunfish::SparseStatePredicates;
-use sui_types::transaction::TransactionDataAPI;
-use sui_types::transaction::TransactionKind;
 use sui_types::transaction::VerifiedTransaction;
 use tap::Pipe;
 
@@ -46,6 +44,7 @@ use crate::rpc_index::CoinIndexInfo;
 use crate::rpc_index::OwnerIndexInfo;
 use crate::rpc_index::OwnerIndexKey;
 use crate::rpc_index::RpcIndexStore;
+use crate::sunfish::matches_sparse_predicates;
 
 #[derive(Clone)]
 pub struct RocksDbStore {
@@ -58,7 +57,11 @@ pub struct RocksDbStore {
     highest_verified_checkpoint: Arc<Mutex<Option<u64>>>,
     highest_synced_checkpoint: Arc<Mutex<Option<u64>>>,
 
-    // in memory sparse state predicates for sparse nodes
+    // TODO(sunfish): This should not be in memory but persistent.
+    // It should raise an error if a sparse node already existing with
+    // a defined predicates relaunch with a new predicate, cause the
+    // previous state will be wrong.
+    // In memory sparse state predicates for sparse nodes
     sparse_state_predicates: Option<SparseStatePredicates>,
 }
 
@@ -230,21 +233,6 @@ impl ReadStore for RocksDbStore {
                 .transaction_cache_reader
                 .get_effects(&exec_digests.effects)?;
 
-            let should_include = {
-                match tx.data().intent_message().value.kind() {
-                    TransactionKind::ProgrammableTransaction(_) => {
-                        // 1. Filter based on tx sender
-                        sparse_state_predicates.matches_address(&tx.sender_address())
-                        // TODO: 2. Filter based on tx events
-                        // 3. Some programmable transactions are made by the address ZERO.
-                        // They must be included.
-                            || tx.sender_address() == SuiAddress::ZERO
-                    }
-                    // Include all non-programmable transactions
-                    _ => true,
-                }
-            };
-
             // NOTE: A tx has a `dependencies` field that we should also include,
             // or retro-include for earlier checkpoint.
             // The retro-inclusion will be handled by the sui-network.
@@ -271,7 +259,7 @@ impl ReadStore for RocksDbStore {
             }
             sparse_transactions.extend(additional_txs);
 
-            if should_include {
+            if matches_sparse_predicates(&tx, &effects, &sparse_state_predicates) {
                 sparse_transactions.push(sui_types::base_types::ExecutionData::new(
                     (*tx).clone().into_inner(),
                     effects,

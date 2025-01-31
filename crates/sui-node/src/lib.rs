@@ -610,12 +610,6 @@ impl SuiNode {
         );
 
         info!("creating state sync store");
-        let state_sync_config = config
-            .p2p_config
-            .state_sync
-            .clone()
-            .ok_or_else(|| anyhow::Error::msg("State sync configuration is missing"))?;
-
         let state_sync_store = RocksDbStore::new(
             cache_traits.clone(),
             committee_store.clone(),

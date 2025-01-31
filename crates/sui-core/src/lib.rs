@@ -36,6 +36,7 @@ pub mod state_accumulator;
 pub mod storage;
 pub mod streamer;
 pub mod subscription_handler;
+pub mod sunfish;
 pub mod test_utils;
 pub mod traffic_controller;
 mod transaction_input_loader;

@@ -1495,7 +1495,6 @@ where
                     // checkpoint store: `reexecute_local_checkpoints`
                 }
 
-
                 return Some(contents);
             }
         } else {
