@@ -5,6 +5,7 @@ use move_core_types::language_storage::StructTag;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use sui_types::base_types::ExecutionData;
 use sui_types::base_types::ObjectID;
 use sui_types::base_types::SuiAddress;
 use sui_types::base_types::TransactionDigest;
@@ -214,6 +215,8 @@ impl ReadStore for RocksDbStore {
             .get_checkpoint_contents(digest)
             .expect("db error")?;
 
+        let transaction_cache_reader = self.cache_traits.transaction_cache_reader;
+
         // The final list of filtered transactions
         let mut sparse_transactions = Vec::with_capacity(contents.size());
         // The transactions that got filtered out of the sparse state
@@ -228,10 +231,7 @@ impl ReadStore for RocksDbStore {
         for exec_digests in contents.iter() {
             let tx = self.get_transaction(&exec_digests.transaction)?;
 
-            let effects = self
-                .cache_traits
-                .transaction_cache_reader
-                .get_effects(&exec_digests.effects)?;
+            let effects = transaction_cache_reader.get_effects(&exec_digests.effects)?;
 
             // NOTE: A tx has a `dependencies` field that we should also include,
             // or retro-include for earlier checkpoint.
@@ -249,21 +249,20 @@ impl ReadStore for RocksDbStore {
             let mut additional_txs = Vec::new();
             for dependency_digest in missing_dependencies {
                 if let Some((tx, effects)) = ignored_txs.remove(&dependency_digest) {
-                    additional_txs.push(sui_types::base_types::ExecutionData::new(
-                        (*tx).clone().into_inner(),
-                        effects,
-                    ));
+                    additional_txs.push(ExecutionData::new((*tx).clone().into_inner(), effects));
                 } else {
                     missing_transactions.push(dependency_digest);
                 }
             }
             sparse_transactions.extend(additional_txs);
 
-            if matches_sparse_predicates(&tx, &effects, &sparse_state_predicates) {
-                sparse_transactions.push(sui_types::base_types::ExecutionData::new(
-                    (*tx).clone().into_inner(),
-                    effects,
-                ));
+            if matches_sparse_predicates(
+                &transaction_cache_reader,
+                &tx,
+                &effects,
+                &sparse_state_predicates,
+            ) {
+                sparse_transactions.push(ExecutionData::new((*tx).clone().into_inner(), effects));
             } else {
                 ignored_txs.insert(*tx.digest(), (Arc::clone(&tx), effects));
                 tracing::info!("[🌅🐟] Ignoring TX with sender {}", tx.sender_address());
