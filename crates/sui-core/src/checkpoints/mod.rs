@@ -154,8 +154,6 @@ pub struct BuilderCheckpointSummary {
 
 #[derive(DBMapUtils)]
 pub struct CheckpointStore {
-    /// TODO(sunfish): Map sparse checkpoint content digest to original checkpoint content digest?
-
     /// Maps checkpoint contents digest to checkpoint contents
     pub(crate) checkpoint_content: DBMap<CheckpointContentsDigest, CheckpointContents>,
 
@@ -184,6 +182,11 @@ pub struct CheckpointStore {
     /// Watermarks used to determine the highest verified, fully synced, and
     /// fully executed checkpoints
     pub(crate) watermarks: DBMap<CheckpointWatermark, (CheckpointSequenceNumber, CheckpointDigest)>,
+
+    /// Mapping between the sparse node checkpoint digest and its original digest.
+    /// Used in sparse nodes context to retrieve the original digest of a truncated checkpoint.
+    pub checkpoint_digest_by_sparse_checkpoint_digest:
+        DBMap<CheckpointContentsDigest, CheckpointContentsDigest>,
 }
 
 impl CheckpointStore {
@@ -637,12 +640,14 @@ impl CheckpointStore {
         &self,
         checkpoint: &VerifiedCheckpoint,
         full_contents: VerifiedCheckpointContents,
+        checkpoint_is_sparse: bool,
     ) -> Result<(), TypedStoreError> {
         let mut batch = self.full_checkpoint_content.batch();
         batch.insert_batch(
             &self.checkpoint_sequence_by_contents_digest,
             [(&checkpoint.content_digest, checkpoint.sequence_number())],
         )?;
+
         let full_contents = full_contents.into_inner();
         batch.insert_batch(
             &self.full_checkpoint_content,
@@ -650,10 +655,20 @@ impl CheckpointStore {
         )?;
 
         let contents = full_contents.into_checkpoint_contents();
-        assert_eq!(&checkpoint.content_digest, contents.digest());
 
-        batch.insert_batch(&self.checkpoint_content, [(contents.digest(), &contents)])?;
+        if !checkpoint_is_sparse {
+            assert_eq!(&checkpoint.content_digest, contents.digest());
+        } else {
+            self.insert_sparse_and_original_digests(&checkpoint.content_digest, contents.digest())
+                .map_err(|_| {
+                    TypedStoreError::RocksDBError("Could not insert sparse digest".into())
+                })?;
+        }
 
+        batch.insert_batch(
+            &self.checkpoint_content,
+            [(&checkpoint.content_digest, &contents)],
+        )?;
         batch.write()
     }
 
@@ -848,6 +863,26 @@ impl CheckpointStore {
         }
 
         info!("Re-execution of locally built checkpoints completed");
+    }
+
+    /// Retrieve the original digest of a sparse checkpoint.
+    pub fn get_sparse_original_digest(
+        &self,
+        sparse_digest: CheckpointContentsDigest,
+    ) -> Result<Option<CheckpointContentsDigest>, TypedStoreError> {
+        self.checkpoint_digest_by_sparse_checkpoint_digest
+            .get(&sparse_digest)
+    }
+
+    /// Insert the mapping between a sparse checkpoint digest and its original checkpoint digest.
+    pub fn insert_sparse_and_original_digests(
+        &self,
+        sparse_digest: &CheckpointContentsDigest,
+        original_digest: &CheckpointContentsDigest,
+    ) -> SuiResult {
+        self.checkpoint_digest_by_sparse_checkpoint_digest
+            .insert(sparse_digest, original_digest)?;
+        Ok(())
     }
 }
 

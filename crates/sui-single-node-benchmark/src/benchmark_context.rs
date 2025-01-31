@@ -410,7 +410,7 @@ impl BenchmarkContext {
                 .multi_insert_transaction_and_effects(contents.transactions());
             state
                 .get_checkpoint_store()
-                .insert_verified_checkpoint_contents(&checkpoint, contents)
+                .insert_verified_checkpoint_contents(&checkpoint, contents, false)
                 .unwrap();
             state
                 .get_checkpoint_store()

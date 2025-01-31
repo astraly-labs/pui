@@ -214,6 +214,7 @@ impl ReadStore for RocksDbStore {
 
         for exec_digests in contents.iter() {
             let tx = self.get_transaction(&exec_digests.transaction)?;
+
             let effects = self
                 .cache_traits
                 .transaction_cache_reader
@@ -386,8 +387,11 @@ impl WriteStore for RocksDbStore {
         self.cache_traits
             .state_sync_store
             .multi_insert_transaction_and_effects(contents.transactions());
+
+        let is_sparse_node = self.get_sparse_state_predicates().is_some();
+
         self.checkpoint_store
-            .insert_verified_checkpoint_contents(checkpoint, contents)
+            .insert_verified_checkpoint_contents(checkpoint, contents, is_sparse_node)
             .map_err(Into::into)
     }
 

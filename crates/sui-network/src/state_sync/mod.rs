@@ -246,8 +246,8 @@ impl PeerHeights {
         debug!("Insert sparse state predicate");
 
         match self.peers_sparse_state_predicates.entry(peer_id) {
-            Entry::Occupied(mut _entry) => {
-                todo!("Figure out how to handle this");
+            Entry::Occupied(mut entry) => {
+                entry.insert(sparse_state_predicates);
             }
             Entry::Vacant(entry) => {
                 entry.insert(sparse_state_predicates);
