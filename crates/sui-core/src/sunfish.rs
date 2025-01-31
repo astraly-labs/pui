@@ -1,11 +1,18 @@
-use crate::execution_cache::TransactionCacheRead;
 use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
 use sui_types::{
     base_types::SuiAddress,
     effects::{TransactionEffects, TransactionEffectsAPI},
+    event::event_matches_filters,
+    id::ID,
     sunfish::SparseStatePredicates,
     transaction::{TransactionDataAPI, TransactionKind, VerifiedTransaction},
 };
+
+use crate::execution_cache::TransactionCacheRead;
 
 pub fn matches_sparse_predicates(
     transaction_cache_reader: &Arc<dyn TransactionCacheRead>,
@@ -18,7 +25,7 @@ pub fn matches_sparse_predicates(
             // 1. Filter based on tx sender
             (match_addresses(tx, predicates)
             // 2. Filter based on tx events
-                && match_events(transaction_cache_reader, effects, predicates)
+                && match_events(transaction_cache_reader, tx, effects, predicates)
             // 3. Filter based on tx package
                 && match_package(tx, effects, predicates)
             )
@@ -40,14 +47,18 @@ fn match_addresses(tx: &Arc<VerifiedTransaction>, predicates: &SparseStatePredic
     }
 }
 
+// For now, we did not find a way to decode arbitrary events.
+// We have a list of events that we know - we define them at the end of this file
+// so we're able to decode any Vec<u8> encountered.
 /// Check if the transaction provided matches the events predicates.
 fn match_events(
     transaction_cache_reader: &Arc<dyn TransactionCacheRead>,
+    tx: &Arc<VerifiedTransaction>,
     effects: &TransactionEffects,
     predicates: &SparseStatePredicates,
 ) -> bool {
     // If there are no event filters, we just return true
-    let Some(ref _event_filters) = predicates.events else {
+    let Some(ref event_filters) = predicates.events else {
         return true;
     };
 
@@ -62,8 +73,12 @@ fn match_events(
     };
 
     for event in events.data {
-        // TODO: match on the event and return early if one matches
-        tracing::info!("Event found: {:?}", event);
+        let event_data = &event.contents;
+        if let Some(event_data) = try_decode_event_to_json(event_data) {
+            if event_matches_filters(&event_filters, &event, &event_data, tx.digest()) {
+                return true;
+            }
+        }
     }
 
     false
@@ -78,36 +93,60 @@ fn match_package(
     true
 }
 
-// ========== Old Event Filtering ==========
+// ================ Pui Oracle Structs ================
 
-// pub fn tx_matches_event_filters<'r>(
-//     layout_resolver: &mut Box<dyn LayoutResolver + 'r>,
-//     cache_reader: &dyn TransactionCacheRead,
-//     tx: &ExecutionData,
-//     event_filters: &[EventFilter],
-// ) -> bool {
-//     let TransactionData::V1(d) = &tx.transaction.data().intent_message().value;
+// For now, we did not find a way to decode arbitrary events.
+// We have a list of events that we know - we define them at the end of this file
+// so we're able to decode any Vec<u8> encountered.
 
-//     // Skip filtering for non-programmable transactions and zero address
-//     !matches!(d.kind, TransactionKind::ProgrammableTransaction(_)) || d.sender == SuiAddress::ZERO ||
-//     // Event filtering logic
-//     tx.effects.events_digest()
-//         .and_then(|digest| cache_reader.get_events(&digest))
-//         .map_or(false, |events| {
-//             events.data.iter().enumerate().any(|(i, event)| {
-//                 let Ok(layout) = layout_resolver.get_annotated_layout(&event.type_) else {
-//                     return false;
-//                 };
+// TODO: Remove them once we have a find a way to decode arbitrary events bytes
+// into their type.
 
-//                 SuiEvent::try_from(
-//                     event.clone(),
-//                     tx.transaction.digest().clone(),
-//                     i.try_into().unwrap(),
-//                     None,
-//                     layout,
-//                 )
-//                 .map(|sui_event| event_filters.iter().all(|f| f.matches(&sui_event)))
-//                 .unwrap_or(false)
-//             })
-//         })
-// }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PriceStorageCreatedEvent {
+    pub storage_id: ID,
+    pub publisher: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PriceUpdatedEvent {
+    pub storage_id: ID,
+    pub publisher: String,
+    pub asset_type: String,
+    pub pair_id: String,
+    pub source: String,
+    pub price: u128,
+    pub decimals: u8,
+    pub volume: u128,
+    pub timestamp: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RegistryCreatedEvent {
+    pub owner: SuiAddress,
+    pub registry: SuiAddress,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublisherRegisteredEvent {
+    pub publisher_name: String,
+    pub publisher_address: SuiAddress,
+}
+
+/// Try decoding the event data against all known event types and convert to JSON
+fn try_decode_event_to_json(data: &[u8]) -> Option<Value> {
+    if let Ok(evt) = bcs::from_bytes::<PriceStorageCreatedEvent>(data) {
+        return serde_json::to_value(evt).ok();
+    }
+    if let Ok(evt) = bcs::from_bytes::<PriceUpdatedEvent>(data) {
+        return serde_json::to_value(evt).ok();
+    }
+    if let Ok(evt) = bcs::from_bytes::<RegistryCreatedEvent>(data) {
+        return serde_json::to_value(evt).ok();
+    }
+    if let Ok(evt) = bcs::from_bytes::<PublisherRegisteredEvent>(data) {
+        return serde_json::to_value(evt).ok();
+    }
+
+    None
+}

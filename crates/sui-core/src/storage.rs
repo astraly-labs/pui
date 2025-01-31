@@ -273,7 +273,6 @@ impl ReadStore for RocksDbStore {
                 filtered_user_signatures.push(user_signature);
             } else {
                 ignored_txs.insert(*tx.digest(), (Arc::clone(&tx), effects));
-                tracing::info!("[🌅🐟] Ignoring TX with sender {}", tx.sender_address());
             }
         }
 

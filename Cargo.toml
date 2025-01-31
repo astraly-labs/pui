@@ -163,7 +163,6 @@ members = [
     "crates/sui-source-validation",
     "crates/sui-source-validation-service",
     "crates/sui-storage",
-    "crates/sui-sunfish",
     "crates/sui-surfer",
     "crates/sui-swarm",
     "crates/sui-swarm-config",

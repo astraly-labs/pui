@@ -15567,63 +15567,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sui-sunfish"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum 0.7.8",
- "backoff",
- "base64-url",
- "bcs",
- "byteorder",
- "bytes",
- "chrono",
- "clap",
- "criterion",
- "eyre",
- "fastcrypto",
- "futures",
- "hyper 1.5.2",
- "hyper-rustls 0.27.2",
- "indicatif",
- "integer-encoding",
- "itertools 0.13.0",
- "lru 0.10.0",
- "moka",
- "move-binary-format",
- "move-bytecode-utils",
- "move-core-types",
- "mysten-metrics",
- "num_cpus",
- "num_enum 0.6.1",
- "object_store",
- "once_cell",
- "parking_lot 0.12.3",
- "percent-encoding",
- "pretty_assertions",
- "prometheus",
- "reqwest 0.12.9",
- "serde",
- "serde_json",
- "sui-config",
- "sui-json-rpc-types",
- "sui-macros",
- "sui-protocol-config",
- "sui-simulator",
- "sui-test-transaction-builder",
- "sui-types",
- "tap",
- "telemetry-subscribers",
- "tempfile",
- "tokio",
- "tracing",
- "typed-store",
- "url",
- "zstd 0.12.3+zstd.1.5.2",
-]
-
-[[package]]
 name = "sui-surfer"
 version = "1.42.0"
 dependencies = [

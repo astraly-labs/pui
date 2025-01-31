@@ -248,3 +248,39 @@ pub enum EventFilter {
 pub trait Filter<T> {
     fn matches(&self, item: &T) -> bool;
 }
+
+pub fn event_matches_filters(
+    filters: &[EventFilter],
+    event: &Event,
+    parsed_event: &Value,
+    from_tx: &TransactionDigest,
+) -> bool {
+    filters.iter().all(|filter| match filter {
+        EventFilter::All([]) => true,
+
+        EventFilter::Any(sub_filters) => sub_filters
+            .iter()
+            .any(|f| event_matches_filters(&[f.clone()], event, parsed_event, from_tx)),
+
+        EventFilter::Sender(sender) => &event.sender == sender,
+
+        EventFilter::Transaction(tx) => tx == from_tx,
+
+        EventFilter::MoveModule { package, module } => {
+            &event.transaction_module == module && event.package_id == *package
+        }
+
+        EventFilter::MoveEventType(event_type) => &event.type_ == event_type,
+
+        EventFilter::MoveEventModule { package, module } => {
+            &event.type_.module == module && &ObjectID::from(event.type_.address) == package
+        }
+
+        // TODO(sunfish): Update this if we want to support TimeRange
+        EventFilter::TimeRange { .. } => false, // No timestamp field in Event
+
+        EventFilter::AnyValue(values) => values.iter().any(|value| parsed_event == value),
+
+        EventFilter::AllValues(values) => values.iter().all(|value| parsed_event == value),
+    })
+}
