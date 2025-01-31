@@ -610,6 +610,12 @@ impl SuiNode {
         );
 
         info!("creating state sync store");
+        let state_sync_config = config
+            .p2p_config
+            .state_sync
+            .clone()
+            .ok_or_else(|| anyhow::Error::msg("State sync configuration is missing"))?;
+
         let state_sync_store = RocksDbStore::new(
             cache_traits.clone(),
             committee_store.clone(),
@@ -618,10 +624,8 @@ impl SuiNode {
                 .p2p_config
                 .state_sync
                 .clone()
-                // TODO(sunfish): unsafe unwrap
-                .unwrap()
-                .sparse_state_predicates
-                .clone(),
+                .map(|config| config.sparse_state_predicates)
+                .flatten(),
         );
 
         let index_store = if is_node && config.enable_index_processing {

@@ -1466,6 +1466,7 @@ where
                 sparse_state_predicates: predicates,
             })
             .with_timeout(timeout);
+            // TODO(sunfish): Add the algorithm to verify that the sparse state is correct.
             if let Some((contents, missing_txs)) = peer
                 .get_sparse_checkpoint_contents(request)
                 .await
@@ -1488,7 +1489,12 @@ where
                     // * how to easily retrieve the checkpoint corresponding to a tx digest?
                     // * we will need to update an already stored checkpoint, so add the tx + the effects and
                     //   update the checkpoint digest.
+
+                    // TODO(sunfish): If we retro-add transactions to checkpoints that already got synced,
+                    // do we need to re-execute them? For that we have a function that exists in the
+                    // checkpoint store: `reexecute_local_checkpoints`
                 }
+
 
                 return Some(contents);
             }
