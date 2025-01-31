@@ -221,9 +221,13 @@ impl ReadStore for RocksDbStore {
 
             let should_include = {
                 match tx.data().intent_message().value.kind() {
-                    // Filter only programmable transactions based on address
                     TransactionKind::ProgrammableTransaction(_) => {
+                        // 1. Filter based on tx sender
                         sparse_state_predicates.matches_address(&tx.sender_address())
+                        // TODO: 2. Filter based on tx events
+                        // 3. Some programmable transactions are made by the address ZERO.
+                        // They must be included.
+                            || tx.sender_address() == SuiAddress::ZERO
                         // TODO(sunfish): Filter based on the tx events
                     }
                     // Include all non-programmable transactions
