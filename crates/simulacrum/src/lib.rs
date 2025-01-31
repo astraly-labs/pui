@@ -26,7 +26,7 @@ use sui_swarm_config::network_config::NetworkConfig;
 use sui_swarm_config::network_config_builder::ConfigBuilder;
 use sui_types::base_types::{AuthorityName, ObjectID, VersionNumber};
 use sui_types::crypto::AuthoritySignature;
-use sui_types::digests::ConsensusCommitDigest;
+use sui_types::digests::{ConsensusCommitDigest, TransactionDigest};
 use sui_types::messages_consensus::ConsensusDeterminedVersionAssignments;
 use sui_types::object::Object;
 use sui_types::storage::{ObjectStore, ReadStore, RpcStateReader};
@@ -553,7 +553,10 @@ impl<T, V: store::SimulatorStore> ReadStore for Simulacrum<T, V> {
         &self,
         _digest: &sui_types::digests::CheckpointContentsDigest,
         _sparse_state_predicates: SparseStatePredicates,
-    ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
+    ) -> Option<(
+        sui_types::messages_checkpoint::FullCheckpointContents,
+        Vec<TransactionDigest>,
+    )> {
         todo!()
     }
 

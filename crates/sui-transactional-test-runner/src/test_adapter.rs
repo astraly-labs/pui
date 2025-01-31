@@ -2517,7 +2517,10 @@ impl ReadStore for SuiTestAdapter {
         &self,
         _digest: &CheckpointContentsDigest,
         _sparse_state_predicates: SparseStatePredicates,
-    ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
+    ) -> Option<(
+        sui_types::messages_checkpoint::FullCheckpointContents,
+        Vec<TransactionDigest>,
+    )> {
         None
     }
 

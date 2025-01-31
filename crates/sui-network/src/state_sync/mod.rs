@@ -1467,7 +1467,7 @@ where
                 sparse_state_predicates: predicates,
             })
             .with_timeout(timeout);
-            if let Some(contents) = peer
+            if let Some((contents, missing_txs)) = peer
                 .get_sparse_checkpoint_contents(request)
                 .await
                 .tap_err(|e| trace!("{e:?}"))
@@ -1479,6 +1479,11 @@ where
                 store
                     .insert_checkpoint_contents(checkpoint, verified_contents)
                     .expect("store operation should not fail");
+
+                // If the checkpoint miss some transactions dependencies, we retro-include them
+                // by asking them from the peer
+                if !missing_txs.is_empty() {}
+
                 return Some(contents);
             }
         } else {

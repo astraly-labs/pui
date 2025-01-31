@@ -99,7 +99,7 @@ impl ReadStore for SharedInMemoryStore {
         &self,
         _digest: &CheckpointContentsDigest,
         _sparse_state_predicates: SparseStatePredicates,
-    ) -> Option<FullCheckpointContents> {
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
         todo!("SUNFISH: Implement this!")
     }
 
@@ -517,7 +517,7 @@ impl ReadStore for SingleCheckpointSharedInMemoryStore {
         &self,
         digest: &CheckpointContentsDigest,
         sparse_state_predicates: SparseStatePredicates,
-    ) -> Option<FullCheckpointContents> {
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
         self.0
             .get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }

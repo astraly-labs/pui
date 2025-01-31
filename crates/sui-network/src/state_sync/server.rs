@@ -8,6 +8,7 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
+use sui_types::digests::TransactionDigest;
 use sui_types::sunfish::SparseStatePredicates;
 use sui_types::{
     digests::{CheckpointContentsDigest, CheckpointDigest},
@@ -138,7 +139,7 @@ where
     async fn get_sparse_checkpoint_contents(
         &self,
         request: Request<GetSparseStatePredicatesRequest>,
-    ) -> Result<Response<Option<FullCheckpointContents>>, Status> {
+    ) -> Result<Response<Option<(FullCheckpointContents, Vec<TransactionDigest>)>>, Status> {
         let inner_request = request.inner();
         let contents = self.store.get_sparse_checkpoint_contents(
             &inner_request.checkpoint_digest,

@@ -3,6 +3,7 @@
 
 use move_core_types::language_storage::StructTag;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
 use sui_exex::context::ExExStore;
 use sui_types::base_types::ObjectID;
@@ -11,6 +12,7 @@ use sui_types::base_types::TransactionDigest;
 use sui_types::committee::Committee;
 use sui_types::committee::EpochId;
 use sui_types::digests::TransactionEventsDigest;
+use sui_types::effects::TransactionEffectsAPI;
 use sui_types::effects::{TransactionEffects, TransactionEvents};
 use sui_types::messages_checkpoint::CheckpointContentsDigest;
 use sui_types::messages_checkpoint::CheckpointDigest;
@@ -204,13 +206,22 @@ impl ReadStore for RocksDbStore {
         &self,
         digest: &CheckpointContentsDigest,
         sparse_state_predicates: SparseStatePredicates,
-    ) -> Option<FullCheckpointContents> {
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
         let contents = self
             .checkpoint_store
             .get_checkpoint_contents(digest)
             .expect("db error")?;
 
+        // The final list of filtered transactions
         let mut sparse_transactions = Vec::with_capacity(contents.size());
+        // The transactions that got filtered out of the sparse state
+        let mut ignored_txs: HashMap<
+            TransactionDigest,
+            (Arc<VerifiedTransaction>, TransactionEffects),
+        > = HashMap::default();
+        // The transaction digests that are missing from the sparse state
+        // and that we need to ask to the peer.
+        let mut missing_transactions = Vec::with_capacity(contents.size());
 
         for exec_digests in contents.iter() {
             let tx = self.get_transaction(&exec_digests.transaction)?;
@@ -229,17 +240,37 @@ impl ReadStore for RocksDbStore {
                         // 3. Some programmable transactions are made by the address ZERO.
                         // They must be included.
                             || tx.sender_address() == SuiAddress::ZERO
-                        // TODO(sunfish): Filter based on the tx events
                     }
                     // Include all non-programmable transactions
                     _ => true,
                 }
             };
 
-            // TODO(sunfish): A tx has a `dependencies` field that we should also include
-            // (or retro-include for earlier checkpoint?). Check that.
-            // (It contains the txs that must be included because they're directly needed in order
-            // for this tx to be valid. Example, it created a storage that in this tx we modify.)
+            // NOTE: A tx has a `dependencies` field that we should also include,
+            // or retro-include for earlier checkpoint.
+            // The retro-inclusion will be handled by the sui-network.
+            let missing_dependencies: Vec<TransactionDigest> = effects
+                .dependencies()
+                .iter()
+                .filter(|tx_digest| self.get_transaction(tx_digest).is_none())
+                .cloned()
+                .collect();
+
+            // Check if one of the missing transactions is in the current checkpoint
+            // by searching in `ignored_txs`
+            // If yes, include it and remove it from the missing_transactions.
+            let mut additional_txs = Vec::new();
+            for dependency_digest in missing_dependencies {
+                if let Some((tx, effects)) = ignored_txs.remove(&dependency_digest) {
+                    additional_txs.push(sui_types::base_types::ExecutionData::new(
+                        (*tx).clone().into_inner(),
+                        effects,
+                    ));
+                } else {
+                    missing_transactions.push(dependency_digest);
+                }
+            }
+            sparse_transactions.extend(additional_txs);
 
             if should_include {
                 sparse_transactions.push(sui_types::base_types::ExecutionData::new(
@@ -247,14 +278,16 @@ impl ReadStore for RocksDbStore {
                     effects,
                 ));
             } else {
+                ignored_txs.insert(*tx.digest(), (Arc::clone(&tx), effects));
                 tracing::info!("[🌅🐟] Ignoring TX with sender {}", tx.sender_address());
             }
         }
 
-        Some(FullCheckpointContents::from_contents_and_execution_data(
+        let full_checkpoint = FullCheckpointContents::from_contents_and_execution_data(
             contents,
             sparse_transactions.into_iter(),
-        ))
+        );
+        Some((full_checkpoint, missing_transactions))
     }
 
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {
@@ -523,7 +556,7 @@ impl ReadStore for RestReadStore {
         &self,
         digest: &CheckpointContentsDigest,
         sparse_state_predicates: SparseStatePredicates,
-    ) -> Option<FullCheckpointContents> {
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
         self.rocks
             .get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }

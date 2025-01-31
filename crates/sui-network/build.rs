@@ -187,7 +187,7 @@ fn build_anemo_services(out_dir: &Path) {
                 .name("get_sparse_checkpoint_contents")
                 .route_name("GetSparseCheckpointContents")
                 .request_type("crate::state_sync::GetSparseStatePredicatesRequest")
-                .response_type("Option<sui_types::messages_checkpoint::FullCheckpointContents>")
+                .response_type("Option<(sui_types::messages_checkpoint::FullCheckpointContents, Vec<sui_types::digests::TransactionDigest>)>")
                 .codec_path(codec_path)
                 .build(),
         )

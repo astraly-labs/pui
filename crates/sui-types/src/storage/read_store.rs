@@ -161,7 +161,7 @@ pub trait ReadStore: ObjectStore {
         &self,
         digest: &CheckpointContentsDigest,
         sparse_state_predicates: SparseStatePredicates,
-    ) -> Option<FullCheckpointContents>;
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)>;
 
     // Fetch all checkpoint data
     // TODO fix return type to not be anyhow
@@ -389,7 +389,7 @@ impl<T: ReadStore + ?Sized> ReadStore for &T {
         &self,
         digest: &CheckpointContentsDigest,
         sparse_state_predicates: SparseStatePredicates,
-    ) -> Option<FullCheckpointContents> {
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
         (*self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
@@ -511,7 +511,7 @@ impl<T: ReadStore + ?Sized> ReadStore for Box<T> {
         &self,
         digest: &CheckpointContentsDigest,
         sparse_state_predicates: SparseStatePredicates,
-    ) -> Option<FullCheckpointContents> {
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
         (**self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
@@ -633,7 +633,7 @@ impl<T: ReadStore + ?Sized> ReadStore for Arc<T> {
         &self,
         digest: &CheckpointContentsDigest,
         sparse_state_predicates: SparseStatePredicates,
-    ) -> Option<FullCheckpointContents> {
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
         (**self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
