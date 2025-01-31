@@ -426,7 +426,7 @@ pub struct CheckpointContentsV1 {
     /// This field 'pins' user signatures for the checkpoint
     /// The length of this vector is same as length of transactions vector
     /// System transactions has empty signatures
-    user_signatures: Vec<Vec<GenericSignature>>,
+    pub user_signatures: Vec<Vec<GenericSignature>>,
 }
 
 impl CheckpointContents {
@@ -480,13 +480,13 @@ impl CheckpointContents {
         })
     }
 
-    fn as_v1(&self) -> &CheckpointContentsV1 {
+    pub fn as_v1(&self) -> &CheckpointContentsV1 {
         match self {
             Self::V1(v) => v,
         }
     }
 
-    fn into_v1(self) -> CheckpointContentsV1 {
+    pub fn into_v1(self) -> CheckpointContentsV1 {
         match self {
             Self::V1(v) => v,
         }
@@ -575,6 +575,7 @@ impl FullCheckpointContents {
             user_signatures,
         }
     }
+
     pub fn from_contents_and_execution_data(
         contents: CheckpointContents,
         execution_data: impl Iterator<Item = ExecutionData>,
@@ -585,6 +586,18 @@ impl FullCheckpointContents {
             user_signatures: contents.into_v1().user_signatures,
         }
     }
+
+    pub fn from_execution_data_and_user_signatures(
+        execution_data: impl Iterator<Item = ExecutionData>,
+        user_signatures: Vec<Vec<GenericSignature>>,
+    ) -> Self {
+        let transactions: Vec<_> = execution_data.collect();
+        Self {
+            transactions,
+            user_signatures,
+        }
+    }
+
     pub fn from_checkpoint_contents<S>(store: S, contents: CheckpointContents) -> Option<Self>
     where
         S: ReadStore,

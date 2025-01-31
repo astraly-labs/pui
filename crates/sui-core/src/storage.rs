@@ -215,20 +215,27 @@ impl ReadStore for RocksDbStore {
             .get_checkpoint_contents(digest)
             .expect("db error")?;
 
+        let user_signatures = contents.clone().into_v1().user_signatures;
+
         let transaction_cache_reader = &self.cache_traits.transaction_cache_reader;
 
         // The final list of filtered transactions
         let mut sparse_transactions = Vec::with_capacity(contents.size());
+
+        // The filtered user signatures that correspond to the sparse transactions
+        let mut filtered_user_signatures = Vec::with_capacity(contents.size());
+
         // The transactions that got filtered out of the sparse state
         let mut ignored_txs: HashMap<
             TransactionDigest,
             (Arc<VerifiedTransaction>, TransactionEffects),
         > = HashMap::default();
+
         // The transaction digests that are missing from the sparse state
         // and that we need to ask to the peer.
         let mut missing_transactions = Vec::with_capacity(contents.size());
 
-        for exec_digests in contents.iter() {
+        for (exec_digests, user_signature) in contents.iter().zip(user_signatures) {
             let tx = self.get_transaction(&exec_digests.transaction)?;
 
             let effects = transaction_cache_reader.get_effects(&exec_digests.effects)?;
@@ -263,15 +270,16 @@ impl ReadStore for RocksDbStore {
                 &sparse_state_predicates,
             ) {
                 sparse_transactions.push(ExecutionData::new((*tx).clone().into_inner(), effects));
+                filtered_user_signatures.push(user_signature);
             } else {
                 ignored_txs.insert(*tx.digest(), (Arc::clone(&tx), effects));
                 tracing::info!("[🌅🐟] Ignoring TX with sender {}", tx.sender_address());
             }
         }
 
-        let full_checkpoint = FullCheckpointContents::from_contents_and_execution_data(
-            contents,
+        let full_checkpoint = FullCheckpointContents::from_execution_data_and_user_signatures(
             sparse_transactions.into_iter(),
+            filtered_user_signatures,
         );
         Some((full_checkpoint, missing_transactions))
     }

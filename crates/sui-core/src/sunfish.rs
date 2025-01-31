@@ -47,7 +47,7 @@ fn match_events(
     predicates: &SparseStatePredicates,
 ) -> bool {
     // If there are no event filters, we just return true
-    let Some(ref event_filters) = predicates.events else {
+    let Some(ref _event_filters) = predicates.events else {
         return true;
     };
 
