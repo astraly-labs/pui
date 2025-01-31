@@ -1481,6 +1481,7 @@ where
 
                 // If the checkpoint miss some transactions dependencies, we retro-include them
                 // by asking them from the peer
+                // TODO(sunfish): What if the peer does not have the txs?
                 if !missing_txs.is_empty() {
                     // TODO(sunfish): implement this.
                     // Few points being:
