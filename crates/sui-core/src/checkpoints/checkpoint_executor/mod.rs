@@ -31,21 +31,16 @@ use itertools::izip;
 use mysten_metrics::spawn_monitored_task;
 use sui_config::node::{CheckpointExecutorConfig, RunWithRange};
 use sui_exex::{ExExManagerHandle, ExExNotification};
-use sui_json_rpc_types::Filter;
-use sui_json_rpc_types::{EventFilter, SuiEvent};
 use sui_macros::{fail_point, fail_point_async};
 use sui_types::accumulator::Accumulator;
-use sui_types::base_types::{ExecutionData, SuiAddress};
+use sui_types::base_types::ExecutionData;
 use sui_types::crypto::RandomnessRound;
 use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
 use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::full_checkpoint_content::CheckpointData;
 use sui_types::inner_temporary_store::PackageStoreWithFallback;
-use sui_types::layout_resolver::LayoutResolver;
 use sui_types::message_envelope::Message;
 use sui_types::messages_checkpoint::FullCheckpointContents;
-use sui_types::sunfish::SparseStatePredicates;
-use sui_types::transaction::TransactionData;
 use sui_types::transaction::TransactionKind;
 use sui_types::{
     base_types::{ExecutionDigests, TransactionDigest, TransactionEffectsDigest},
@@ -1115,29 +1110,6 @@ fn get_unexecuted_transactions(
         })
         .into_inner();
 
-    // // NOTE: `full_checkpoint_contents` is None for end of epoch txs
-    // if let Some(mut full_contents) = full_checkpoint_contents {
-    //     // NOTE(sunfish): Here, we  filter out some txs.
-    //     // For now, this is "ok". The state will only contain the state that
-    //     // we're interested in.
-    //     // However, this is not optimal. We should filter the state that is
-    //     // sent by a Validator instead of filtering here.
-    //     // But this needs much much more work, i.e. all the work for the
-    //     // prover-verifier protocol and probably some more work with the digests
-    //     // validity.
-    //     if let Some(config) = sparse_state_config {
-    //         apply_sparse_filters(
-    //             &mut full_contents,
-    //             &mut execution_digests,
-    //             config,
-    //             state,
-    //             &epoch_store,
-    //             cache_reader,
-    //         );
-    //     }
-    //     full_checkpoint_contents = Some(full_contents);
-    // }
-
     let full_contents_txns: Option<HashMap<TransactionDigest, ExecutionData>> =
         full_checkpoint_contents.map(|c| {
             c.into_iter()
@@ -1440,106 +1412,4 @@ async fn finalize_checkpoint(
     }
 
     Ok((checkpoint_acc, checkpoint_data))
-}
-
-// ========== Sunfish Filtering ==========
-
-#[allow(unused)]
-fn apply_sparse_filters(
-    full_contents: &mut FullCheckpointContents,
-    execution_digests: &mut Vec<ExecutionDigests>,
-    config: SparseStatePredicates,
-    state: &AuthorityState,
-    epoch_store: &Arc<AuthorityPerEpochStore>,
-    cache_reader: &dyn TransactionCacheRead,
-) {
-    let SparseStatePredicates {
-        addresses,
-        events,
-        packages: _,
-    } = config;
-
-    // Address filtering
-    if let Some(addresses) = addresses {
-        let removed = full_contents.filter_by_addresses(&addresses);
-        execution_digests.retain(|d| !removed.contains(d));
-    }
-
-    // Event filtering
-    if let Some(event_filters) = events {
-        if !full_contents.all_events_digests().is_empty() {
-            let layout_resolver = epoch_store
-                .executor()
-                .type_layout_resolver(Box::new(state.get_backing_store().as_ref()));
-
-            let removed = filter_content_by_events(
-                layout_resolver,
-                cache_reader,
-                full_contents,
-                &event_filters,
-            );
-
-            execution_digests.retain(|d| !removed.contains(d));
-        }
-    }
-}
-
-// ========== Event Filtering ==========
-#[allow(unused)]
-pub fn filter_content_by_events<'r>(
-    mut layout_resolver: Box<dyn LayoutResolver + 'r>,
-    cache_reader: &dyn TransactionCacheRead,
-    checkpoint_content: &mut FullCheckpointContents,
-    event_filters: &[EventFilter],
-) -> Vec<ExecutionDigests> {
-    // Partition into kept and filtered out
-    let (kept, filtered_out): (Vec<_>, Vec<_>) = checkpoint_content
-        .transactions
-        .iter()
-        .zip(&checkpoint_content.user_signatures)
-        .partition(|(tx, _)| {
-            tx_matches_event_filters(&mut layout_resolver, cache_reader, tx, event_filters)
-        });
-
-    // Collect filtered digests
-    let filtered_digests = filtered_out.iter().map(|(tx, _)| tx.digests()).collect();
-
-    let new_transactions: Vec<_> = kept.iter().cloned().map(|(tx, _)| tx.clone()).collect();
-    let new_signatures: Vec<_> = kept.iter().cloned().map(|(_, sig)| sig.clone()).collect();
-    checkpoint_content.transactions = new_transactions;
-    checkpoint_content.user_signatures = new_signatures;
-
-    filtered_digests
-}
-
-pub fn tx_matches_event_filters<'r>(
-    layout_resolver: &mut Box<dyn LayoutResolver + 'r>,
-    cache_reader: &dyn TransactionCacheRead,
-    tx: &ExecutionData,
-    event_filters: &[EventFilter],
-) -> bool {
-    let TransactionData::V1(d) = &tx.transaction.data().intent_message().value;
-
-    // Skip filtering for non-programmable transactions and zero address
-    !matches!(d.kind, TransactionKind::ProgrammableTransaction(_)) || d.sender == SuiAddress::ZERO ||
-    // Event filtering logic
-    tx.effects.events_digest()
-        .and_then(|digest| cache_reader.get_events(&digest))
-        .map_or(false, |events| {
-            events.data.iter().enumerate().any(|(i, event)| {
-                let Ok(layout) = layout_resolver.get_annotated_layout(&event.type_) else {
-                    return false;
-                };
-
-                SuiEvent::try_from(
-                    event.clone(),
-                    tx.transaction.digest().clone(),
-                    i.try_into().unwrap(),
-                    None,
-                    layout,
-                )
-                .map(|sui_event| event_filters.iter().all(|f| f.matches(&sui_event)))
-                .unwrap_or(false)
-            })
-        })
 }

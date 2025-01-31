@@ -215,7 +215,7 @@ impl ReadStore for RocksDbStore {
             .get_checkpoint_contents(digest)
             .expect("db error")?;
 
-        let transaction_cache_reader = self.cache_traits.transaction_cache_reader;
+        let transaction_cache_reader = &self.cache_traits.transaction_cache_reader;
 
         // The final list of filtered transactions
         let mut sparse_transactions = Vec::with_capacity(contents.size());
@@ -257,7 +257,7 @@ impl ReadStore for RocksDbStore {
             sparse_transactions.extend(additional_txs);
 
             if matches_sparse_predicates(
-                &transaction_cache_reader,
+                transaction_cache_reader,
                 &tx,
                 &effects,
                 &sparse_state_predicates,

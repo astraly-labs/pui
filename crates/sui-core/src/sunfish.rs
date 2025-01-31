@@ -1,8 +1,8 @@
+use crate::execution_cache::TransactionCacheRead;
 use std::sync::Arc;
 use sui_types::{
     base_types::SuiAddress,
-    effects::TransactionEffects,
-    storage::ReadStore,
+    effects::{TransactionEffects, TransactionEffectsAPI},
     sunfish::SparseStatePredicates,
     transaction::{TransactionDataAPI, TransactionKind, VerifiedTransaction},
 };
@@ -47,7 +47,7 @@ fn match_events(
     predicates: &SparseStatePredicates,
 ) -> bool {
     // If there are no event filters, we just return true
-    let Some(event_filters) = predicates.events else {
+    let Some(ref event_filters) = predicates.events else {
         return true;
     };
 
@@ -63,6 +63,7 @@ fn match_events(
 
     for event in events.data {
         // TODO: match on the event and return early if one matches
+        tracing::info!("Event found: {:?}", event);
     }
 
     false
@@ -76,3 +77,37 @@ fn match_package(
 ) -> bool {
     true
 }
+
+// ========== Old Event Filtering ==========
+
+// pub fn tx_matches_event_filters<'r>(
+//     layout_resolver: &mut Box<dyn LayoutResolver + 'r>,
+//     cache_reader: &dyn TransactionCacheRead,
+//     tx: &ExecutionData,
+//     event_filters: &[EventFilter],
+// ) -> bool {
+//     let TransactionData::V1(d) = &tx.transaction.data().intent_message().value;
+
+//     // Skip filtering for non-programmable transactions and zero address
+//     !matches!(d.kind, TransactionKind::ProgrammableTransaction(_)) || d.sender == SuiAddress::ZERO ||
+//     // Event filtering logic
+//     tx.effects.events_digest()
+//         .and_then(|digest| cache_reader.get_events(&digest))
+//         .map_or(false, |events| {
+//             events.data.iter().enumerate().any(|(i, event)| {
+//                 let Ok(layout) = layout_resolver.get_annotated_layout(&event.type_) else {
+//                     return false;
+//                 };
+
+//                 SuiEvent::try_from(
+//                     event.clone(),
+//                     tx.transaction.digest().clone(),
+//                     i.try_into().unwrap(),
+//                     None,
+//                     layout,
+//                 )
+//                 .map(|sui_event| event_filters.iter().all(|f| f.matches(&sui_event)))
+//                 .unwrap_or(false)
+//             })
+//         })
+// }
