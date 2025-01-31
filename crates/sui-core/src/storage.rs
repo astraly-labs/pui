@@ -272,6 +272,7 @@ impl ReadStore for RocksDbStore {
                 sparse_transactions.push(ExecutionData::new((*tx).clone().into_inner(), effects));
                 filtered_user_signatures.push(user_signature);
             } else {
+                tracing::info!("[SUNFISH] Not including the tx {} ⛔", tx.digest());
                 ignored_txs.insert(*tx.digest(), (Arc::clone(&tx), effects));
             }
         }

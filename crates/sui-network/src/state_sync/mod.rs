@@ -883,8 +883,6 @@ async fn get_latest_from_peer(
         return;
     }
 
-    trace!("MAKING REQUEST FOR SUNFISH PREDICATES");
-
     // Check if the peer is a sparse node
     let response = client
         .get_sparse_state_predicates(Request::new(()))
@@ -1064,6 +1062,8 @@ where
         peer_heights.clone(),
         PeerCheckpointRequestType::Summary,
     );
+
+    // TODO(sunfish): mmmmmmhhhhh, here?
     // range of the next sequence_numbers to fetch
     let mut request_stream = (current.sequence_number().checked_add(1).unwrap()
         ..=*checkpoint.sequence_number())

@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use sui_types::{
     base_types::SuiAddress,
+    digests::TransactionDigest,
     effects::{TransactionEffects, TransactionEffectsAPI},
     event::event_matches_filters,
     id::ID,
@@ -75,7 +76,14 @@ fn match_events(
     for event in events.data {
         let event_data = &event.contents;
         if let Some(event_data) = try_decode_event_to_json(event_data) {
+            tracing::info!(
+                "[SUNFISH] GOT EVENT {:?} FROM TX {}",
+                &event_data,
+                tx.digest()
+            );
+
             if event_matches_filters(&event_filters, &event, &event_data, tx.digest()) {
+                tracing::info!("[SUNFISH] ✅ MATCHED :D");
                 return true;
             }
         }

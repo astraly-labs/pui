@@ -655,7 +655,6 @@ impl CheckpointStore {
         )?;
 
         let contents = full_contents.into_checkpoint_contents();
-
         if !checkpoint_is_sparse {
             assert_eq!(&checkpoint.content_digest, contents.digest());
         } else {
@@ -865,23 +864,23 @@ impl CheckpointStore {
         info!("Re-execution of locally built checkpoints completed");
     }
 
-    /// Retrieve the original digest of a sparse checkpoint.
+    /// Retrieve the sparse digest from a full checkpoint digest.
     pub fn get_sparse_original_digest(
         &self,
-        sparse_digest: CheckpointContentsDigest,
+        checkpoint_digest: CheckpointContentsDigest,
     ) -> Result<Option<CheckpointContentsDigest>, TypedStoreError> {
         self.checkpoint_digest_by_sparse_checkpoint_digest
-            .get(&sparse_digest)
+            .get(&checkpoint_digest)
     }
 
     /// Insert the mapping between a sparse checkpoint digest and its original checkpoint digest.
     pub fn insert_sparse_and_original_digests(
         &self,
-        sparse_digest: &CheckpointContentsDigest,
         original_digest: &CheckpointContentsDigest,
+        sparse_digest: &CheckpointContentsDigest,
     ) -> SuiResult {
         self.checkpoint_digest_by_sparse_checkpoint_digest
-            .insert(sparse_digest, original_digest)?;
+            .insert(original_digest, sparse_digest)?;
         Ok(())
     }
 }

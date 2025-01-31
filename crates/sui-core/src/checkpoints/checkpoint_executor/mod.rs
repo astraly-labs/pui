@@ -585,6 +585,7 @@ impl CheckpointExecutor {
         epoch_store.notify_synced_checkpoint(*checkpoint.sequence_number());
         self.notify_exex_checkpoint_synced(checkpoint.sequence_number());
 
+        // TODO(sunfish): sniff here
         pending.push_back(spawn_monitored_task!(async move {
             let epoch_store = epoch_store.clone();
             let (tx_digests, checkpoint_acc, checkpoint_data) = loop {
@@ -804,7 +805,10 @@ async fn execute_checkpoint(
     Option<Accumulator>,
     Option<CheckpointData>,
 )> {
-    debug!("Preparing checkpoint for execution",);
+    info!(
+        "Preparing checkpoint {} for execution",
+        checkpoint.sequence_number
+    );
     let prepare_start = Instant::now();
     // this function must guarantee that all transactions in the checkpoint are executed before it
     // returns. This invariant is enforced in two phases:
@@ -822,7 +826,10 @@ async fn execute_checkpoint(
 
     let tx_count = execution_digests.len();
 
-    info!("Number of transactions in the checkpoint: {:?}", tx_count);
+    info!(
+        "Number of transactions in the checkpoint #{}: {:?}",
+        checkpoint.sequence_number, tx_count
+    );
 
     metrics
         .checkpoint_transaction_count
