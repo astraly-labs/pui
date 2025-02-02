@@ -19,6 +19,7 @@
 //! end of epoch. This allows us to use it as a signal for reconfig.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -84,6 +85,8 @@ type CheckpointExecutionBuffer = FuturesOrdered<
 /// The interval to log checkpoint progress, in # of checkpoints processed.
 const CHECKPOINT_PROGRESS_LOG_COUNT_INTERVAL: u64 = 5000;
 
+static TIP_REACHED_NOTIFIED: AtomicBool = AtomicBool::new(false);
+
 #[derive(Debug, Clone, Copy)]
 pub struct CheckpointTimeoutConfig {
     pub panic_timeout: Option<Duration>,
@@ -142,6 +145,7 @@ pub struct CheckpointExecutor {
     // TODO: AuthorityState is only needed because we have to call deprecated_insert_finalized_transactions
     // once that code is fully deprecated we can remove this
     state: Arc<AuthorityState>,
+    sync_state_handle: Option<sui_network::state_sync::Handle>,
     checkpoint_store: Arc<CheckpointStore>,
     object_cache_reader: Arc<dyn ObjectCacheRead>,
     transaction_cache_reader: Arc<dyn TransactionCacheRead>,
@@ -159,6 +163,7 @@ impl CheckpointExecutor {
         mailbox: broadcast::Receiver<VerifiedCheckpoint>,
         checkpoint_store: Arc<CheckpointStore>,
         state: Arc<AuthorityState>,
+        sync_state_handle: Option<sui_network::state_sync::Handle>,
         accumulator: Arc<StateAccumulator>,
         backpressure_manager: Arc<BackpressureManager>,
         config: CheckpointExecutorConfig,
@@ -169,6 +174,7 @@ impl CheckpointExecutor {
         Self {
             mailbox,
             state: state.clone(),
+            sync_state_handle,
             checkpoint_store,
             object_cache_reader: state.get_object_cache_reader().clone(),
             transaction_cache_reader: state.get_transaction_cache_reader().clone(),
@@ -192,6 +198,7 @@ impl CheckpointExecutor {
             mailbox,
             checkpoint_store,
             state,
+            None,
             accumulator,
             BackpressureManager::new_for_tests(),
             Default::default(),
@@ -581,6 +588,9 @@ impl CheckpointExecutor {
         let state = self.state.clone();
 
         epoch_store.notify_synced_checkpoint(*checkpoint.sequence_number());
+
+        self.check_and_notify_tip_reached(&checkpoint);
+
         self.notify_exex_checkpoint_synced(checkpoint.sequence_number());
 
         pending.push_back(spawn_monitored_task!(async move {
@@ -772,6 +782,27 @@ impl CheckpointExecutor {
         false
     }
 
+    fn check_and_notify_tip_reached(&self, checkpoint: &VerifiedCheckpoint) {
+        if TIP_REACHED_NOTIFIED.load(Ordering::Relaxed) {
+            return;
+        }
+    
+        let sync_state = match &self.sync_state_handle {
+            Some(state) => state,
+            None => return,
+        };
+    
+        let highest_checkpoint = match sync_state.highest_known_checkpoint_sequence_number() {
+            Some(checkpoint) => checkpoint,
+            None => return,
+        };
+    
+        if *checkpoint.sequence_number() == highest_checkpoint {
+            self.notify_exex_tip_reached();
+            TIP_REACHED_NOTIFIED.store(true, Ordering::Relaxed);
+        }
+    }
+
     fn notify_exex_checkpoint_synced(&self, checkpoint_seq: &CheckpointSequenceNumber) {
         let Some(manager) = self.exex_manager.as_ref() else {
             return;
@@ -779,6 +810,13 @@ impl CheckpointExecutor {
         let _ = manager.send(ExExNotification::CheckpointSynced {
             checkpoint_number: *checkpoint_seq,
         });
+    }
+
+    fn notify_exex_tip_reached(&self) {
+        let Some(manager) = self.exex_manager.as_ref() else {
+            return;
+        };
+        let _ = manager.send(ExExNotification::HasReachedTip);
     }
 }
 
