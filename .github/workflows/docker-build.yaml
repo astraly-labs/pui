@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         package:
-          [docker/pui-node]
+          [docker/sui-node]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +26,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Pui Node
+      - name: Build and push Sui Node
         uses: docker/build-push-action@v6
         with:
           context: .

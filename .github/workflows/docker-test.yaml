@@ -9,7 +9,7 @@ jobs:
   build_containers:
     strategy:
       matrix:
-        package: [docker/pui-node]
+        package: [docker/sui-node]
     runs-on: ubuntu-latest
     permissions:
       checks: write
