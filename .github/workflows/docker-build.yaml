@@ -46,6 +46,5 @@ jobs:
           build-args: |
             GIT_REVISION=${{ steps.Docker_args.outputs.GIT_REVISION }}
             BUILD_DATE=${{ steps.Docker_args.outputs.BUILD_DATE }}
-          target: production
           tags: |
             ${{ env.DOCKER_REGISTRY}}/${{ matrix.package }}:latest
