@@ -4,6 +4,8 @@
 # and build the application.
 FROM rust:1.81-bullseye AS builder
 ARG PROFILE=release
+ARG GIT_REVISION
+ENV GIT_REVISION=$GIT_REVISION
 WORKDIR "$WORKDIR/sui"
 RUN apt-get update && apt-get install -y cmake clang
 
@@ -26,3 +28,8 @@ WORKDIR "$WORKDIR/sui"
 COPY --from=builder /sui/target/release/sui-node /opt/sui/bin/sui-node
 # Support legacy usages of /usr/local/bin/sui-node
 COPY --from=builder /sui/target/release/sui-node /usr/local/bin
+
+ARG BUILD_DATE
+ARG GIT_REVISION
+LABEL build-date=$BUILD_DATE
+LABEL git-revision=$GIT_REVISION
