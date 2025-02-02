@@ -14,6 +14,7 @@ pub enum ExExNotification {
     CheckpointSynced {
         checkpoint_number: CheckpointSequenceNumber,
     },
+    HasReachedTip,
 }
 
 /// A stream of [`ExExNotification`]s. The stream will emit notifications for all blocks.
