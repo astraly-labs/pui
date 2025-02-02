@@ -1238,7 +1238,10 @@ impl SuiNode {
             network
         };
 
-        // TODO(sunfish): Check if we need the discovery with a Sparse Node
+        // TODO(sunfish): Check if we need the discovery with a Sparse Node.
+        // Probably yes, but we should keep them in "memory" and only try to sync with one
+        // peer. If the peer is byzantine or isn't connected, we close the connection with it
+        // and proceed with another main peer from the available peers.
         let discovery_handle =
             discovery.start(p2p_network.clone(), config.network_key_pair().copy());
         let state_sync_handle = state_sync.start(p2p_network.clone());

@@ -486,7 +486,7 @@ impl ArchiveReader {
                                 Self::get_or_insert_verified_checkpoint(&store, summary, verify)?;
                             // Verify content
                             let digest = verified_checkpoint.content_digest;
-                            contents.verify_digests(digest)?;
+                            contents.verify_digests(digest, store.get_sparse_state_predicates().is_some())?;
                             let verified_contents =
                                 VerifiedCheckpointContents::new_unchecked(contents.clone());
                             // Insert content

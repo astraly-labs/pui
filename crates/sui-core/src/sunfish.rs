@@ -1,11 +1,10 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use sui_types::{
     base_types::SuiAddress,
-    digests::TransactionDigest,
     effects::{TransactionEffects, TransactionEffectsAPI},
     event::event_matches_filters,
     id::ID,

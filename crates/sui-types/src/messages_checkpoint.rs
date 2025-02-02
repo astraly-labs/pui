@@ -625,14 +625,17 @@ impl FullCheckpointContents {
 
     /// Verifies that this checkpoint's digest matches the given digest, and that all internal
     /// Transaction and TransactionEffects digests are consistent.
-    pub fn verify_digests(&self, digest: CheckpointContentsDigest) -> Result<()> {
-        let self_digest = *self.checkpoint_contents().digest();
-        fp_ensure!(
-            digest == self_digest,
-            anyhow::anyhow!(
-                "checkpoint contents digest {self_digest} does not match expected digest {digest}"
-            )
-        );
+    pub fn verify_digests(&self, digest: CheckpointContentsDigest, is_sparse: bool) -> Result<()> {
+        // Verify the checkpoint digest only if the checkpoint isn't sparse
+        if !is_sparse {
+            let self_digest = *self.checkpoint_contents().digest();
+            fp_ensure!(
+                digest == self_digest,
+                anyhow::anyhow!(
+                    "checkpoint contents digest {self_digest} does not match expected digest {digest}"
+                )
+            );
+        }
         for tx in self.iter() {
             let transaction_digest = tx.transaction.digest();
             fp_ensure!(

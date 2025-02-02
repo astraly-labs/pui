@@ -536,6 +536,7 @@ where
                 },
             }
 
+            // TODO(sunfish): Probably need to handle this too
             self.maybe_start_checkpoint_summary_sync_task();
             self.maybe_trigger_checkpoint_contents_sync_task(
                 &target_checkpoint_contents_sequence_sender,
@@ -1049,6 +1050,7 @@ where
     let mut current = store
         .get_highest_verified_checkpoint()
         .expect("store operation should not fail");
+
     if current.sequence_number() >= checkpoint.sequence_number() {
         return Err(anyhow::anyhow!(
             "target checkpoint {} is older than highest verified checkpoint {}",
@@ -1063,7 +1065,7 @@ where
         PeerCheckpointRequestType::Summary,
     );
 
-    // TODO(sunfish): mmmmmmhhhhh, here?
+    // TODO(sunfish): handle this for sparse nodes?
     // range of the next sequence_numbers to fetch
     let mut request_stream = (current.sequence_number().checked_add(1).unwrap()
         ..=*checkpoint.sequence_number())
@@ -1475,27 +1477,30 @@ where
                 .and_then(Response::into_inner)
                 .tap_none(|| trace!("peer unable to help sync"))
             {
-                let verified_contents = VerifiedCheckpointContents::new_unchecked(contents.clone());
-                store
-                    .insert_checkpoint_contents(checkpoint, verified_contents)
-                    .expect("store operation should not fail");
+                if contents.verify_digests(digest, true).is_ok() {
+                    let verified_contents =
+                        VerifiedCheckpointContents::new_unchecked(contents.clone());
+                    store
+                        .insert_checkpoint_contents(checkpoint, verified_contents)
+                        .expect("store operation should not fail");
 
-                // If the checkpoint miss some transactions dependencies, we retro-include them
-                // by asking them from the peer
-                // TODO(sunfish): What if the peer does not have the txs?
-                if !missing_txs.is_empty() {
-                    // TODO(sunfish): implement this.
-                    // Few points being:
-                    // * how to easily retrieve the checkpoint corresponding to a tx digest?
-                    // * we will need to update an already stored checkpoint, so add the tx + the effects and
-                    //   update the checkpoint digest.
+                    // If the checkpoint miss some transactions dependencies, we retro-include them
+                    // by asking them from the peer
+                    // TODO(sunfish): What if the peer does not have the txs?
+                    if !missing_txs.is_empty() {
+                        // TODO(sunfish): implement this.
+                        // Few points being:
+                        // * how to easily retrieve the checkpoint corresponding to a tx digest?
+                        // * we will need to update an already stored checkpoint, so add the tx + the effects and
+                        //   update the checkpoint digest.
 
-                    // TODO(sunfish): If we retro-add transactions to checkpoints that already got synced,
-                    // do we need to re-execute them? For that we have a function that exists in the
-                    // checkpoint store: `reexecute_local_checkpoints`
+                        // TODO(sunfish): If we retro-add transactions to checkpoints that already got synced,
+                        // do we need to re-execute them? For that we have a function that exists in the
+                        // checkpoint store: `reexecute_local_checkpoints`
+                    }
+
+                    return Some(contents);
                 }
-
-                return Some(contents);
             }
         } else {
             let request = Request::new(digest).with_timeout(timeout);
@@ -1507,7 +1512,7 @@ where
                 .and_then(Response::into_inner)
                 .tap_none(|| trace!("peer unable to help sync"))
             {
-                if contents.verify_digests(digest).is_ok() {
+                if contents.verify_digests(digest, false).is_ok() {
                     let verified_contents =
                         VerifiedCheckpointContents::new_unchecked(contents.clone());
                     store
