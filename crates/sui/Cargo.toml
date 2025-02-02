@@ -52,7 +52,6 @@ uuid.workspace = true
 url.workspace = true
 
 sui-config.workspace = true
-sui-bridge.workspace = true
 sui-cluster-test.workspace = true
 sui-execution.workspace = true
 sui-faucet.workspace = true
