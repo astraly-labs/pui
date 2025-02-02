@@ -1,0 +1,51 @@
+---
+name: Task - Build & Push Docker Image
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  DOCKER_REGISTRY: ghcr.io/${{ github.repository }}
+
+jobs:
+  build_containers:
+    strategy:
+      matrix:
+        package:
+          [docker/sui-node]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Docker Args
+        id: Docker_args
+        shell: bash
+        run: |
+          # Set the necessary environment variables for the Docker build
+          GIT_REVISION="$(git describe --always --abbrev=12 --dirty --exclude '*')"
+          BUILD_DATE="$(date -u +'%Y-%m-%d')"
+
+          echo "GIT_REVISION=$GIT_REVISION" >> $GITHUB_ENV
+          echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
+
+      - name: Build and push Sui Node
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./${{ matrix.package }}/Dockerfile
+          push: true
+          build-args: |
+            GIT_REVISION=${{ steps.Docker_args.outputs.GIT_REVISION }}
+            BUILD_DATE=${{ steps.Docker_args.outputs.BUILD_DATE }}
+          target: production
+          tags: |
+            ${{ env.DOCKER_REGISTRY}}/${{ matrix.package }}:latest

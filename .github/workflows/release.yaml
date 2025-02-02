@@ -1,0 +1,12 @@
+---
+name: Workflow - Release
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  docker_release_build:
+    name: Build docker release
+    uses: ./.github/workflows/docker-build.yaml
