@@ -782,6 +782,20 @@ impl CheckpointExecutor {
         false
     }
 
+    /// Checks if the node is fully synced and notify exexs when the tip is reached the
+    /// first time.
+    ///
+    /// # Arguments
+    /// * `checkpoint` - A reference to a [`VerifiedCheckpoint`] representing the current checkpoint.
+    ///
+    /// # Behavior
+    /// - If the tip has already been notified (via `TIP_REACHED_NOTIFIED`), this function
+    ///   does nothing and returns early.
+    /// - If not and the current checkpoint's sequence number matches the highest known checkpoint,
+    ///   the tip is considered reached and send the appropriate notification to the exex. 
+    /// 
+    /// The `TIP_REACHED_NOTIFIED` flag is then set to `true` to prevent further notifications.
+    ///
     fn check_and_notify_tip_reached(&self, checkpoint: &VerifiedCheckpoint) {
         if TIP_REACHED_NOTIFIED.load(Ordering::Relaxed) {
             return;
@@ -792,14 +806,21 @@ impl CheckpointExecutor {
             None => return,
         };
     
+        // Highest checkpoint can be None when the chain is down while relaunching a node that already
+        // have some checkpoint in db
         let highest_checkpoint = match sync_state.highest_known_checkpoint_sequence_number() {
             Some(checkpoint) => checkpoint,
-            None => return,
+            None => {
+                warn!("Highest checkpoint is None, please check chain state");
+                return
+            },
         };
     
         if *checkpoint.sequence_number() == highest_checkpoint {
-            self.notify_exex_tip_reached();
-            TIP_REACHED_NOTIFIED.store(true, Ordering::Relaxed);
+            match self.notify_exex_tip_reached(){
+                Ok(_) => TIP_REACHED_NOTIFIED.store(true, Ordering::Relaxed),
+                Err(_) => warn!("failed to notify exex, will try again on next checkpoint"),
+            };
         }
     }
 
@@ -812,11 +833,11 @@ impl CheckpointExecutor {
         });
     }
 
-    fn notify_exex_tip_reached(&self) {
+    fn notify_exex_tip_reached(&self) -> Result<(), tokio::sync::mpsc::error::SendError<ExExNotification>>{
         let Some(manager) = self.exex_manager.as_ref() else {
-            return;
+            return Ok(());
         };
-        let _ = manager.send(ExExNotification::HasReachedTip);
+        manager.send(ExExNotification::HasReachedTip)
     }
 }
 
