@@ -11,7 +11,7 @@ use sui_types::messages_checkpoint::CheckpointSequenceNumber;
 use tap::Pipe;
 
 #[derive(Clone)]
-pub(super) struct Metrics(Option<Arc<Inner>>);
+pub struct Metrics(Option<Arc<Inner>>);
 
 impl std::fmt::Debug for Metrics {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {

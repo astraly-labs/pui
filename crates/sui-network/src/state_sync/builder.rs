@@ -179,11 +179,15 @@ where
 pub struct UnstartedStateSync<S> {
     pub config: StateSyncConfig,
     pub handle: Handle,
+    #[allow(unused)]
     pub mailbox: mpsc::Receiver<StateSyncMessage>,
+    #[allow(unused)]
     pub download_limit_layer: Option<CheckpointContentsDownloadLimitLayer>,
     pub store: S,
+    #[allow(unused)]
     pub peer_heights: Arc<RwLock<PeerHeights>>,
     pub checkpoint_event_sender: broadcast::Sender<VerifiedCheckpoint>,
+    #[allow(unused)]
     pub metrics: Metrics,
     pub archive_readers: ArchiveReaderBalancer,
 }

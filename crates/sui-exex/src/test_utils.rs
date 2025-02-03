@@ -1,7 +1,5 @@
 use anyhow::Result;
-use futures::FutureExt;
 use mysten_metrics::monitored_mpsc::{self, UnboundedReceiver};
-use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -9,7 +7,6 @@ use std::task::{Context, Poll};
 use sui_network::state_sync::{Builder, Handle, UnstartedStateSync};
 use sui_swarm_config::test_utils::{empty_contents, CommitteeFixture};
 use sui_types::{messages_checkpoint::CheckpointSequenceNumber, storage::SharedInMemoryStore};
-use thiserror::Error;
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
@@ -21,6 +18,7 @@ use crate::{
 pub struct TestExExHandle {
     notification_sender: Sender<ExExNotification>,
     event_receiver: UnboundedReceiver<ExExEvent>,
+    #[allow(unused)]
     state_sync: Arc<Handle>,
 }
 

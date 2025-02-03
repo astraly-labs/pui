@@ -5,8 +5,6 @@
         "sui-tool",
         "sui-faucet",
         "sui-data-ingestion",
-        "sui-bridge",
-        "sui-bridge-cli",
         "sui-graphql-rpc",
         "sui-test-validator",
         "move-analyzer"
