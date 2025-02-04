@@ -1684,6 +1684,7 @@ impl SuiNode {
                 self.state_sync_handle.subscribe_to_synced_checkpoints(),
                 self.checkpoint_store.clone(),
                 self.state.clone(),
+                Some(self.state_sync_handle.clone()),
                 accumulator.clone(),
                 self.backpressure_manager.clone(),
                 self.config.checkpoint_executor_config.clone(),
