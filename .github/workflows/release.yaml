@@ -54,7 +54,7 @@ jobs:
           context: .
           file: ./docker/sui-node/Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64,linux/386
+          platforms: linux/amd64,linux/386
           build-args: |
             GIT_REVISION=${{ steps.docker_args.outputs.GIT_REVISION }}
             BUILD_DATE=${{ steps.docker_args.outputs.BUILD_DATE }}

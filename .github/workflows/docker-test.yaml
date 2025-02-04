@@ -9,7 +9,7 @@ jobs:
     strategy:
       matrix:
         package: [docker/sui-node]
-        platform: [linux/amd64, linux/arm64, linux/386]
+        platform: [linux/amd64, linux/386]
     runs-on: ubuntu-latest
     permissions:
       checks: write

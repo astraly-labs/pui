@@ -18,13 +18,11 @@ COPY sui-execution sui-execution
 COPY external-crates external-crates
 
 # Set up cross-compilation targets if needed
-RUN rustup target add aarch64-unknown-linux-gnu
 RUN rustup target add i686-unknown-linux-gnu
 
 # Build for the appropriate architecture
 RUN case ${TARGETARCH} in \
      "amd64") cargo build --profile ${PROFILE} --bin sui-node ;; \
-     "arm64") cargo build --profile ${PROFILE} --target aarch64-unknown-linux-gnu --bin sui-node ;; \
      "386") cargo build --profile ${PROFILE} --target i686-unknown-linux-gnu --bin sui-node ;; \
      *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
      esac
@@ -40,8 +38,6 @@ RUN apt-get update && apt-get install -y ca-certificates curl \
      && case ${TARGETARCH} in \
      "amd64") apt-get install -y libjemalloc-dev && \
      echo "/usr/lib/x86_64-linux-gnu/libjemalloc.so" > /etc/ld.preload ;; \
-     "arm64") apt-get install -y libjemalloc-dev && \
-     echo "/usr/lib/aarch64-linux-gnu/libjemalloc.so" > /etc/ld.preload ;; \
      "386") apt-get install -y libjemalloc-dev && \
      echo "/usr/lib/i386-linux-gnu/libjemalloc.so" > /etc/ld.preload ;; \
      esac
