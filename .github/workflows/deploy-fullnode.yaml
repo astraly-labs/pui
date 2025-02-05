@@ -1,0 +1,26 @@
+name: Deploy Full Node
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag or commit hash'
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2.1.8
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Setup GCloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy
+        run: |
+          gcloud compute ssh --zone "${{ secrets.GCP_ZONE }}" "${{ secrets.FULLNODE_NAME }}" \
+            --tunnel-through-iap \
+            --project "${{ secrets.GCP_PROJECT }}" \
+            --command "sudo /home/pui/scripts/update/update_fullnode.sh ${{ github.event.inputs.version }}"
