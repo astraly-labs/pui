@@ -1,0 +1,30 @@
+name: Deploy Validator
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag or commit hash'
+        required: true
+      clean_db:
+        description: 'Clean validator DB'
+        type: boolean
+        default: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2.1.8
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Setup GCloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy
+        run: |
+          gcloud compute ssh --zone "${{ secrets.GCP_ZONE }}" "${{ secrets.VALIDATOR_NAME }}" \
+            --tunnel-through-iap \
+            --project "${{ secrets.GCP_PROJECT }}" \
+            --command "sudo /home/pui/scripts/update/update_validator.sh ${{ github.event.inputs.version }} ${{ github.event.inputs.clean_db }}"
