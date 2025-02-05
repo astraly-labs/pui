@@ -18,7 +18,7 @@ sudo cargo build --release --bin sui-node
 sudo systemctl stop sui-node
 
 if [ "$CLEAN_DB" = "true" ]; then
-    rm -rf /opt/sui/db/authorities_db /opt/sui/db/consensus_db
+    sudo rm -rf /opt/sui/db/authorities_db /opt/sui/db/consensus_db
 fi
 
 # Copy the new binary to the target directory

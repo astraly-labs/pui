@@ -2,10 +2,7 @@
 set -e
 
 VERSION=$1
-if [ -z "$VERSION" ]; then
-    echo "Version parameter required"
-    exit 1
-fi
+CLEAN_DB=$2
 
 # Access the Home directory where we have the PUI Folder
 cd /home/pui
@@ -19,6 +16,10 @@ sudo cargo build --release --bin sui-node
 
 # Stop the PUI Node
 sudo systemctl stop sui-node
+
+if [ "$CLEAN_DB" = "true" ]; then
+    sudo rm -rf /home/sui-db/
+fi
 
 # Start the PUI Node
 sudo systemctl start sui-node
