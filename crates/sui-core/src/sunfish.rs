@@ -110,15 +110,9 @@ fn match_package(
 // into their type.
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PriceStorageCreatedEvent {
-    pub storage_id: ID,
-    pub publisher: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PriceUpdatedEvent {
-    pub storage_id: ID,
-    pub publisher: String,
+pub struct SpotEntryCreatedEvent {
+    pub entry_id: ID,
+    pub publisher_address: SuiAddress,
     pub asset_type: String,
     pub pair_id: String,
     pub source: String,
@@ -142,10 +136,7 @@ pub struct PublisherRegisteredEvent {
 
 /// Try decoding the event data against all known event types and convert to JSON
 fn try_decode_event_to_json(data: &[u8]) -> Option<Value> {
-    if let Ok(evt) = bcs::from_bytes::<PriceStorageCreatedEvent>(data) {
-        return serde_json::to_value(evt).ok();
-    }
-    if let Ok(evt) = bcs::from_bytes::<PriceUpdatedEvent>(data) {
+    if let Ok(evt) = bcs::from_bytes::<SpotEntryCreatedEvent>(data) {
         return serde_json::to_value(evt).ok();
     }
     if let Ok(evt) = bcs::from_bytes::<RegistryCreatedEvent>(data) {
