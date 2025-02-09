@@ -620,7 +620,7 @@ impl ValidatorService {
         // Validate if cert can be executed
         // Fullnode does not serve handle_certificate call.
         fp_ensure!(
-            !self.state.is_fullnode(epoch_store),
+            !self.state.is_node(epoch_store),
             SuiError::FullNodeCantHandleCertificate.into()
         );
 

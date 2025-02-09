@@ -3,13 +3,16 @@
 
 use move_core_types::language_storage::StructTag;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
+use sui_types::base_types::ExecutionData;
 use sui_types::base_types::ObjectID;
 use sui_types::base_types::SuiAddress;
 use sui_types::base_types::TransactionDigest;
 use sui_types::committee::Committee;
 use sui_types::committee::EpochId;
 use sui_types::digests::TransactionEventsDigest;
+use sui_types::effects::TransactionEffectsAPI;
 use sui_types::effects::{TransactionEffects, TransactionEvents};
 use sui_types::messages_checkpoint::CheckpointContentsDigest;
 use sui_types::messages_checkpoint::CheckpointDigest;
@@ -30,6 +33,7 @@ use sui_types::storage::RpcIndexes;
 use sui_types::storage::RpcStateReader;
 use sui_types::storage::WriteStore;
 use sui_types::storage::{ExExStore, ObjectKey, ReadStore};
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::transaction::VerifiedTransaction;
 use tap::Pipe;
 
@@ -41,6 +45,7 @@ use crate::rpc_index::CoinIndexInfo;
 use crate::rpc_index::OwnerIndexInfo;
 use crate::rpc_index::OwnerIndexKey;
 use crate::rpc_index::RpcIndexStore;
+use crate::sunfish::matches_sparse_predicates;
 
 #[derive(Clone)]
 pub struct RocksDbStore {
@@ -48,9 +53,17 @@ pub struct RocksDbStore {
 
     committee_store: Arc<CommitteeStore>,
     checkpoint_store: Arc<CheckpointStore>,
+
     // in memory checkpoint watermark sequence numbers
     highest_verified_checkpoint: Arc<Mutex<Option<u64>>>,
     highest_synced_checkpoint: Arc<Mutex<Option<u64>>>,
+
+    // TODO(sunfish): This should not be in memory but persistent.
+    // It should raise an error if a sparse node already existing with
+    // a defined predicates relaunch with a new predicate, cause the
+    // previous state will be wrong.
+    // In memory sparse state predicates for sparse nodes
+    sparse_state_predicates: Option<SparseStatePredicates>,
 }
 
 impl RocksDbStore {
@@ -58,6 +71,7 @@ impl RocksDbStore {
         cache_traits: ExecutionCacheTraitPointers,
         committee_store: Arc<CommitteeStore>,
         checkpoint_store: Arc<CheckpointStore>,
+        sparse_state_predicates: Option<SparseStatePredicates>,
     ) -> Self {
         Self {
             cache_traits,
@@ -65,6 +79,7 @@ impl RocksDbStore {
             checkpoint_store,
             highest_verified_checkpoint: Arc::new(Mutex::new(None)),
             highest_synced_checkpoint: Arc::new(Mutex::new(None)),
+            sparse_state_predicates,
         }
     }
 
@@ -190,6 +205,85 @@ impl ReadStore for RocksDbStore {
             })
     }
 
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
+        let contents = self
+            .checkpoint_store
+            .get_checkpoint_contents(digest)
+            .expect("db error")?;
+
+        let user_signatures = contents.clone().into_v1().user_signatures;
+
+        let transaction_cache_reader = &self.cache_traits.transaction_cache_reader;
+
+        // The final list of filtered transactions
+        let mut sparse_transactions = Vec::with_capacity(contents.size());
+
+        // The filtered user signatures that correspond to the sparse transactions
+        let mut filtered_user_signatures = Vec::with_capacity(contents.size());
+
+        // The transactions that got filtered out of the sparse state
+        let mut ignored_txs: HashMap<
+            TransactionDigest,
+            (Arc<VerifiedTransaction>, TransactionEffects),
+        > = HashMap::default();
+
+        // The transaction digests that are missing from the sparse state
+        // and that we need to ask to the peer.
+        let mut missing_transactions = Vec::with_capacity(contents.size());
+
+        for (exec_digests, user_signature) in contents.iter().zip(user_signatures) {
+            let tx = self.get_transaction(&exec_digests.transaction)?;
+
+            let effects = transaction_cache_reader.get_effects(&exec_digests.effects)?;
+
+            // NOTE: A tx has a `dependencies` field that we should also include,
+            // or retro-include for earlier checkpoint.
+            // The retro-inclusion will be handled by the sui-network.
+            let missing_dependencies: Vec<TransactionDigest> = effects
+                .dependencies()
+                .iter()
+                .filter(|tx_digest| self.get_transaction(tx_digest).is_none())
+                .cloned()
+                .collect();
+
+            // Check if one of the missing transactions is in the current checkpoint
+            // by searching in `ignored_txs`
+            // If yes, include it and remove it from the missing_transactions.
+            let mut additional_txs = Vec::new();
+            for dependency_digest in missing_dependencies {
+                if let Some((tx, effects)) = ignored_txs.remove(&dependency_digest) {
+                    additional_txs.push(ExecutionData::new((*tx).clone().into_inner(), effects));
+                } else {
+                    missing_transactions.push(dependency_digest);
+                }
+            }
+            sparse_transactions.extend(additional_txs);
+
+            if matches_sparse_predicates(
+                transaction_cache_reader,
+                &tx,
+                &effects,
+                &sparse_state_predicates,
+            ) {
+                sparse_transactions.push(ExecutionData::new((*tx).clone().into_inner(), effects));
+                filtered_user_signatures.push(user_signature);
+            } else {
+                tracing::info!("[SUNFISH] Not including the tx {} ⛔", tx.digest());
+                ignored_txs.insert(*tx.digest(), (Arc::clone(&tx), effects));
+            }
+        }
+
+        let full_checkpoint = FullCheckpointContents::from_execution_data_and_user_signatures(
+            sparse_transactions.into_iter(),
+            filtered_user_signatures,
+        );
+        Some((full_checkpoint, missing_transactions))
+    }
+
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {
         self.committee_store.get_committee(&epoch).unwrap()
     }
@@ -238,6 +332,10 @@ impl ReadStore for RocksDbStore {
             Some(checkpoint) => self.get_checkpoint_contents_by_digest(&checkpoint.content_digest),
             None => None,
         }
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        self.sparse_state_predicates.clone()
     }
 }
 
@@ -316,8 +414,11 @@ impl WriteStore for RocksDbStore {
         self.cache_traits
             .state_sync_store
             .multi_insert_transaction_and_effects(contents.transactions());
+
+        let is_sparse_node = self.get_sparse_state_predicates().is_some();
+
         self.checkpoint_store
-            .insert_verified_checkpoint_contents(checkpoint, contents)
+            .insert_verified_checkpoint_contents(checkpoint, contents, is_sparse_node)
             .map_err(Into::into)
     }
 
@@ -443,6 +544,19 @@ impl ReadStore for RestReadStore {
         digest: &CheckpointContentsDigest,
     ) -> Option<FullCheckpointContents> {
         self.rocks.get_full_checkpoint_contents(digest)
+    }
+
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
+        self.rocks
+            .get_sparse_checkpoint_contents(digest, sparse_state_predicates)
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        self.rocks.sparse_state_predicates.clone()
     }
 }
 

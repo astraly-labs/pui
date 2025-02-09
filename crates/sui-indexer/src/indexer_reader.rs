@@ -1052,6 +1052,12 @@ impl IndexerReader {
                         "This type of EventFilter is not supported.".to_owned(),
                     ));
                 }
+                EventFilter::AllValues(_) => {
+                    unreachable!()
+                }
+                EventFilter::AnyValue(_) => {
+                    unreachable!()
+                }
             };
 
             let cursor_clause = if descending_order {

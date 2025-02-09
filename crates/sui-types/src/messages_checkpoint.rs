@@ -3,14 +3,14 @@
 
 use crate::accumulator::Accumulator;
 use crate::base_types::{
-    random_object_ref, ExecutionData, ExecutionDigests, VerifiedExecutionData,
+    random_object_ref, ExecutionData, ExecutionDigests, SuiAddress, VerifiedExecutionData,
 };
 use crate::committee::{EpochId, ProtocolVersion, StakeUnit};
 use crate::crypto::{
     default_hash, get_key_pair, AccountKeyPair, AggregateAuthoritySignature, AuthoritySignInfo,
     AuthoritySignInfoTrait, AuthorityStrongQuorumSignInfo, RandomnessRound,
 };
-use crate::digests::Digest;
+use crate::digests::{Digest, TransactionEventsDigest};
 use crate::effects::{TestEffectsBuilder, TransactionEffectsAPI};
 use crate::error::SuiResult;
 use crate::gas::GasCostSummary;
@@ -20,10 +20,12 @@ use crate::storage::ReadStore;
 use crate::sui_serde::AsProtocolVersion;
 use crate::sui_serde::BigInt;
 use crate::sui_serde::Readable;
+use crate::transaction::TransactionKind;
 use crate::transaction::{Transaction, TransactionData};
 use crate::{base_types::AuthorityName, committee::Committee, error::SuiError};
 use anyhow::Result;
 use fastcrypto::hash::MultisetHash;
+use im::HashSet;
 use mysten_metrics::histogram::Histogram as MystenHistogram;
 use once_cell::sync::OnceCell;
 use prometheus::Histogram;
@@ -424,7 +426,7 @@ pub struct CheckpointContentsV1 {
     /// This field 'pins' user signatures for the checkpoint
     /// The length of this vector is same as length of transactions vector
     /// System transactions has empty signatures
-    user_signatures: Vec<Vec<GenericSignature>>,
+    pub user_signatures: Vec<Vec<GenericSignature>>,
 }
 
 impl CheckpointContents {
@@ -478,13 +480,13 @@ impl CheckpointContents {
         })
     }
 
-    fn as_v1(&self) -> &CheckpointContentsV1 {
+    pub fn as_v1(&self) -> &CheckpointContentsV1 {
         match self {
             Self::V1(v) => v,
         }
     }
 
-    fn into_v1(self) -> CheckpointContentsV1 {
+    pub fn into_v1(self) -> CheckpointContentsV1 {
         match self {
             Self::V1(v) => v,
         }
@@ -548,11 +550,11 @@ impl CheckpointContents {
 // CheckpointBuilder::split_checkpoint_chunks should also be updated accordingly.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FullCheckpointContents {
-    transactions: Vec<ExecutionData>,
+    pub transactions: Vec<ExecutionData>,
     /// This field 'pins' user signatures for the checkpoint
     /// The length of this vector is same as length of transactions vector
     /// System transactions has empty signatures
-    user_signatures: Vec<Vec<GenericSignature>>,
+    pub user_signatures: Vec<Vec<GenericSignature>>,
 }
 
 impl FullCheckpointContents {
@@ -573,6 +575,7 @@ impl FullCheckpointContents {
             user_signatures,
         }
     }
+
     pub fn from_contents_and_execution_data(
         contents: CheckpointContents,
         execution_data: impl Iterator<Item = ExecutionData>,
@@ -583,6 +586,18 @@ impl FullCheckpointContents {
             user_signatures: contents.into_v1().user_signatures,
         }
     }
+
+    pub fn from_execution_data_and_user_signatures(
+        execution_data: impl Iterator<Item = ExecutionData>,
+        user_signatures: Vec<Vec<GenericSignature>>,
+    ) -> Self {
+        let transactions: Vec<_> = execution_data.collect();
+        Self {
+            transactions,
+            user_signatures,
+        }
+    }
+
     pub fn from_checkpoint_contents<S>(store: S, contents: CheckpointContents) -> Option<Self>
     where
         S: ReadStore,
@@ -610,14 +625,17 @@ impl FullCheckpointContents {
 
     /// Verifies that this checkpoint's digest matches the given digest, and that all internal
     /// Transaction and TransactionEffects digests are consistent.
-    pub fn verify_digests(&self, digest: CheckpointContentsDigest) -> Result<()> {
-        let self_digest = *self.checkpoint_contents().digest();
-        fp_ensure!(
-            digest == self_digest,
-            anyhow::anyhow!(
-                "checkpoint contents digest {self_digest} does not match expected digest {digest}"
-            )
-        );
+    pub fn verify_digests(&self, digest: CheckpointContentsDigest, is_sparse: bool) -> Result<()> {
+        // Verify the checkpoint digest only if the checkpoint isn't sparse
+        if !is_sparse {
+            let self_digest = *self.checkpoint_contents().digest();
+            fp_ensure!(
+                digest == self_digest,
+                anyhow::anyhow!(
+                    "checkpoint contents digest {self_digest} does not match expected digest {digest}"
+                )
+            );
+        }
         for tx in self.iter() {
             let transaction_digest = tx.transaction.digest();
             fp_ensure!(
@@ -674,6 +692,47 @@ impl FullCheckpointContents {
             effects,
         };
         FullCheckpointContents::new_with_causally_ordered_transactions(vec![exe_data])
+    }
+
+    pub fn all_events_digests(&self) -> Vec<TransactionEventsDigest> {
+        self.transactions
+            .iter()
+            .filter_map(|execution_data| execution_data.effects.events_digest())
+            .cloned()
+            .collect()
+    }
+
+    pub fn filter_by_addresses(&mut self, addresses: &[SuiAddress]) -> Vec<ExecutionDigests> {
+        let allowed_senders: HashSet<SuiAddress> = addresses.iter().cloned().collect();
+        let mut filtered_out_digests = Vec::new();
+
+        // Iterate through transactions and signatures in lockstep
+        let mut new_transactions = Vec::new();
+        let mut new_signatures = Vec::new();
+
+        for (tx, sig) in self.transactions.iter().zip(&self.user_signatures) {
+            let (sender, kind) = match tx.transaction.data().intent_message().value {
+                TransactionData::V1(ref d) => (d.sender, &d.kind),
+            };
+
+            let keep = match kind {
+                TransactionKind::ProgrammableTransaction(_) => allowed_senders.contains(&sender),
+                _ => true,
+            };
+
+            if keep {
+                new_transactions.push(tx.clone());
+                new_signatures.push(sig.clone());
+            } else {
+                filtered_out_digests.push(tx.digests());
+            }
+        }
+
+        // Update in place
+        self.transactions = new_transactions;
+        self.user_signatures = new_signatures;
+
+        filtered_out_digests
     }
 }
 

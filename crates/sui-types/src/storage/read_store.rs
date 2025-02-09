@@ -15,6 +15,7 @@ use crate::full_checkpoint_content::CheckpointData;
 use crate::messages_checkpoint::{
     CheckpointContents, CheckpointSequenceNumber, FullCheckpointContents, VerifiedCheckpoint,
 };
+use crate::sunfish::SparseStatePredicates;
 use crate::transaction::VerifiedTransaction;
 use move_core_types::language_storage::StructTag;
 use move_core_types::language_storage::TypeTag;
@@ -28,6 +29,12 @@ pub trait ReadStore: ObjectStore {
     //
 
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>>;
+
+    //
+    // Sparse Node Getters
+    //
+
+    fn get_sparse_state_predicates(&self) -> Option<SparseStatePredicates>;
 
     //
     // Checkpoint Getters
@@ -146,6 +153,15 @@ pub trait ReadStore: ObjectStore {
         &self,
         digest: &CheckpointContentsDigest,
     ) -> Option<FullCheckpointContents>;
+
+    /// Get a "sparse" checkpoint for purposes of state-sync
+    /// "sparse" checkpoints include: header, contents, transactions, effects
+    /// that matches the given sparse node predicates
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)>;
 
     // Fetch all checkpoint data
     // TODO fix return type to not be anyhow
@@ -269,6 +285,10 @@ impl<T: ReadStore + ?Sized> ReadStore for &T {
         (*self).get_committee(epoch)
     }
 
+    fn get_sparse_state_predicates(&self) -> Option<SparseStatePredicates> {
+        (*self).get_sparse_state_predicates()
+    }
+
     fn get_latest_checkpoint(&self) -> Result<VerifiedCheckpoint> {
         (*self).get_latest_checkpoint()
     }
@@ -365,6 +385,14 @@ impl<T: ReadStore + ?Sized> ReadStore for &T {
         (*self).get_full_checkpoint_contents(digest)
     }
 
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
+        (*self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
+    }
+
     fn get_checkpoint_data(
         &self,
         checkpoint: VerifiedCheckpoint,
@@ -377,6 +405,10 @@ impl<T: ReadStore + ?Sized> ReadStore for &T {
 impl<T: ReadStore + ?Sized> ReadStore for Box<T> {
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {
         (**self).get_committee(epoch)
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<SparseStatePredicates> {
+        (**self).get_sparse_state_predicates()
     }
 
     fn get_latest_checkpoint(&self) -> Result<VerifiedCheckpoint> {
@@ -473,6 +505,14 @@ impl<T: ReadStore + ?Sized> ReadStore for Box<T> {
         digest: &CheckpointContentsDigest,
     ) -> Option<FullCheckpointContents> {
         (**self).get_full_checkpoint_contents(digest)
+    }
+
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
+        (**self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
     fn get_checkpoint_data(
@@ -489,6 +529,10 @@ impl<T: ReadStore + ?Sized> ReadStore for Arc<T> {
         (**self).get_committee(epoch)
     }
 
+    fn get_sparse_state_predicates(&self) -> Option<SparseStatePredicates> {
+        (**self).get_sparse_state_predicates()
+    }
+
     fn get_latest_checkpoint(&self) -> Result<VerifiedCheckpoint> {
         (**self).get_latest_checkpoint()
     }
@@ -583,6 +627,14 @@ impl<T: ReadStore + ?Sized> ReadStore for Arc<T> {
         digest: &CheckpointContentsDigest,
     ) -> Option<FullCheckpointContents> {
         (**self).get_full_checkpoint_contents(digest)
+    }
+
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
+        (**self).get_sparse_checkpoint_contents(digest, sparse_state_predicates)
     }
 
     fn get_checkpoint_data(

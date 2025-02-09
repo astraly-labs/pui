@@ -840,7 +840,7 @@ impl AuthorityState {
         epoch_store.committee().authority_exists(&self.name)
     }
 
-    pub fn is_fullnode(&self, epoch_store: &AuthorityPerEpochStore) -> bool {
+    pub fn is_node(&self, epoch_store: &AuthorityPerEpochStore) -> bool {
         !self.is_validator(epoch_store)
     }
 
@@ -1457,14 +1457,12 @@ impl AuthorityState {
         )
         .await?;
 
-        if let TransactionKind::AuthenticatorStateUpdate(auth_state) =
+        if let TransactionKind::AuthenticatorStateUpdate(_) =
             certificate.data().transaction_data().kind()
         {
             if let Some(err) = &execution_error_opt {
                 debug_fatal!("Authenticator state update failed: {:?}", err);
             }
-            epoch_store.update_authenticator_state(&auth_state);
-
             // double check that the signature verifier always matches the authenticator state
             if cfg!(debug_assertions) {
                 let authenticator_state = get_authenticator_state(self.get_object_store())
@@ -1724,9 +1722,9 @@ impl AuthorityState {
         Option<ObjectID>,
     )> {
         let epoch_store = self.load_epoch_store_one_call_per_task();
-        if !self.is_fullnode(&epoch_store) {
+        if !self.is_node(&epoch_store) {
             return Err(SuiError::UnsupportedFeatureError {
-                error: "dry-exec is only supported on fullnodes".to_string(),
+                error: "dry-exec is only supported on nodes".to_string(),
             });
         }
 
@@ -1942,9 +1940,9 @@ impl AuthorityState {
         }
 
         let epoch_store = self.load_epoch_store_one_call_per_task();
-        if !self.is_fullnode(&epoch_store) {
+        if !self.is_node(&epoch_store) {
             return Err(SuiError::UnsupportedFeatureError {
-                error: "simulate is only supported on fullnodes".to_string(),
+                error: "simulate is only supported on nodes".to_string(),
             });
         }
 
@@ -2080,9 +2078,9 @@ impl AuthorityState {
     ) -> SuiResult<DevInspectResults> {
         let epoch_store = self.load_epoch_store_one_call_per_task();
 
-        if !self.is_fullnode(&epoch_store) {
+        if !self.is_node(&epoch_store) {
             return Err(SuiError::UnsupportedFeatureError {
-                error: "dev-inspect is only supported on fullnodes".to_string(),
+                error: "dev-inspect is only supported on nodes".to_string(),
             });
         }
 
@@ -4099,7 +4097,8 @@ impl AuthorityState {
                     descending,
                 )?,
             // not using "_ =>" because we want to make sure we remember to add new variants here
-            EventFilter::Any(_) => {
+            // TODO(akhercha): Implement variants for JsonValue filtering + revert the "_"
+            _ => {
                 return Err(SuiError::UserInputError {
                     error: UserInputError::Unsupported(
                         "'Any' queries are not supported by the fullnode.".to_string(),

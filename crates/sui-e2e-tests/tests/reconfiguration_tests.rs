@@ -567,7 +567,7 @@ async fn test_inactive_validator_pool_read() {
     validator.with(|node| {
         assert!(node
             .state()
-            .is_fullnode(&node.state().epoch_store_for_testing()));
+            .is_node(&node.state().epoch_store_for_testing()));
     });
 
     // Check that the validator that just left now shows up in the inactive_validators,

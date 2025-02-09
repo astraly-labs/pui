@@ -13,6 +13,7 @@ use sui_protocol_config::ProtocolVersion;
 use sui_swarm_config::genesis_config::AccountConfig;
 use sui_swarm_config::network_config_builder::ConfigBuilder;
 use sui_types::storage::{ReadStore, RpcStateReader};
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::{
     base_types::{ObjectID, SequenceNumber, SuiAddress, VersionNumber},
     committee::{Committee, EpochId},
@@ -655,6 +656,21 @@ impl ReadStore for PersistedStoreInnerReadOnlyWrapper {
         _digest: &CheckpointContentsDigest,
     ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
         todo!()
+    }
+
+    fn get_sparse_checkpoint_contents(
+        &self,
+        _digest: &CheckpointContentsDigest,
+        _sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(
+        sui_types::messages_checkpoint::FullCheckpointContents,
+        Vec<TransactionDigest>,
+    )> {
+        todo!()
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        None
     }
 }
 

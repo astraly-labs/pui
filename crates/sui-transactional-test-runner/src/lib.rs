@@ -45,6 +45,7 @@ use sui_types::storage::ObjectStore;
 use sui_types::storage::ReadStore;
 use sui_types::sui_system_state::epoch_start_sui_system_state::EpochStartSystemStateTrait;
 use sui_types::sui_system_state::SuiSystemStateTrait;
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::transaction::InputObjects;
 use sui_types::transaction::Transaction;
 use sui_types::transaction::TransactionDataAPI;
@@ -364,6 +365,21 @@ impl ReadStore for ValidatorWithFullnode {
         _digest: &CheckpointContentsDigest,
     ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
         todo!()
+    }
+
+    fn get_sparse_checkpoint_contents(
+        &self,
+        _digest: &CheckpointContentsDigest,
+        _sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(
+        sui_types::messages_checkpoint::FullCheckpointContents,
+        Vec<TransactionDigest>,
+    )> {
+        todo!()
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        None
     }
 }
 

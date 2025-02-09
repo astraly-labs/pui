@@ -15,6 +15,8 @@ use std::fmt;
 use std::fmt::Display;
 use sui_types::base_types::{ObjectID, SuiAddress, TransactionDigest};
 use sui_types::error::SuiResult;
+use sui_types::event::EventFilter;
+use sui_types::event::Filter;
 use sui_types::event::{Event, EventEnvelope, EventID};
 use sui_types::sui_serde::BigInt;
 
@@ -60,6 +62,38 @@ pub struct SuiEvent {
     #[schemars(with = "Option<BigInt<u64>>")]
     #[serde_as(as = "Option<BigInt<u64>>")]
     pub timestamp_ms: Option<u64>,
+}
+
+impl Filter<SuiEvent> for EventFilter {
+    fn matches(&self, item: &SuiEvent) -> bool {
+        let _scope = monitored_scope("EventFilter::matches");
+        match self {
+            EventFilter::All([]) => true,
+            EventFilter::Any(filters) => filters.iter().any(|f| f.matches(item)),
+            EventFilter::MoveEventType(event_type) => &item.type_ == event_type,
+            EventFilter::Sender(sender) => &item.sender == sender,
+            EventFilter::MoveModule { package, module } => {
+                &item.transaction_module == module && &item.package_id == package
+            }
+            EventFilter::Transaction(digest) => digest == &item.id.tx_digest,
+
+            EventFilter::TimeRange {
+                start_time,
+                end_time,
+            } => {
+                if let Some(timestamp) = &item.timestamp_ms {
+                    start_time <= timestamp && end_time > timestamp
+                } else {
+                    false
+                }
+            }
+            EventFilter::MoveEventModule { package, module } => {
+                &item.type_.module == module && &ObjectID::from(item.type_.address) == package
+            }
+            EventFilter::AnyValue(values) => values.iter().any(|value| &item.parsed_json == value),
+            EventFilter::AllValues(values) => values.iter().all(|value| &item.parsed_json == value),
+        }
+    }
 }
 
 #[serde_as]
@@ -276,102 +310,6 @@ fn bytes_array_to_base64(v: &mut Value) {
 fn try_into_byte(v: &Value) -> Option<u8> {
     let num = v.as_u64()?;
     (num <= 255).then_some(num as u8)
-}
-
-#[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub enum EventFilter {
-    /// Return all events.
-    All([Box<EventFilter>; 0]),
-
-    /// Return events that match any of the given filters. Only supported on event subscriptions.
-    Any(Vec<EventFilter>),
-
-    /// Query by sender address.
-    Sender(SuiAddress),
-    /// Return events emitted by the given transaction.
-    Transaction(
-        ///digest of the transaction, as base-64 encoded string
-        TransactionDigest,
-    ),
-    /// Return events emitted in a specified Move module.
-    /// If the event is defined in Module A but emitted in a tx with Module B,
-    /// query `MoveModule` by module B returns the event.
-    /// Query `MoveEventModule` by module A returns the event too.
-    MoveModule {
-        /// the Move package ID
-        package: ObjectID,
-        /// the module name
-        #[schemars(with = "String")]
-        #[serde_as(as = "DisplayFromStr")]
-        module: Identifier,
-    },
-    /// Return events with the given Move event struct name (struct tag).
-    /// For example, if the event is defined in `0xabcd::MyModule`, and named
-    /// `Foo`, then the struct tag is `0xabcd::MyModule::Foo`.
-    MoveEventType(
-        #[schemars(with = "String")]
-        #[serde_as(as = "SuiStructTag")]
-        StructTag,
-    ),
-    /// Return events with the given Move module name where the event struct is defined.
-    /// If the event is defined in Module A but emitted in a tx with Module B,
-    /// query `MoveEventModule` by module A returns the event.
-    /// Query `MoveModule` by module B returns the event too.
-    MoveEventModule {
-        /// the Move package ID
-        package: ObjectID,
-        /// the module name
-        #[schemars(with = "String")]
-        #[serde_as(as = "DisplayFromStr")]
-        module: Identifier,
-    },
-    /// Return events emitted in [start_time, end_time] interval
-    #[serde(rename_all = "camelCase")]
-    TimeRange {
-        /// left endpoint of time interval, milliseconds since epoch, inclusive
-        #[schemars(with = "BigInt<u64>")]
-        #[serde_as(as = "BigInt<u64>")]
-        start_time: u64,
-        /// right endpoint of time interval, milliseconds since epoch, exclusive
-        #[schemars(with = "BigInt<u64>")]
-        #[serde_as(as = "BigInt<u64>")]
-        end_time: u64,
-    },
-}
-
-impl Filter<SuiEvent> for EventFilter {
-    fn matches(&self, item: &SuiEvent) -> bool {
-        let _scope = monitored_scope("EventFilter::matches");
-        match self {
-            EventFilter::All([]) => true,
-            EventFilter::Any(filters) => filters.iter().any(|f| f.matches(item)),
-            EventFilter::MoveEventType(event_type) => &item.type_ == event_type,
-            EventFilter::Sender(sender) => &item.sender == sender,
-            EventFilter::MoveModule { package, module } => {
-                &item.transaction_module == module && &item.package_id == package
-            }
-            EventFilter::Transaction(digest) => digest == &item.id.tx_digest,
-
-            EventFilter::TimeRange {
-                start_time,
-                end_time,
-            } => {
-                if let Some(timestamp) = &item.timestamp_ms {
-                    start_time <= timestamp && end_time > timestamp
-                } else {
-                    false
-                }
-            }
-            EventFilter::MoveEventModule { package, module } => {
-                &item.type_.module == module && &ObjectID::from(item.type_.address) == package
-            }
-        }
-    }
-}
-
-pub trait Filter<T> {
-    fn matches(&self, item: &T) -> bool;
 }
 
 #[cfg(test)]

@@ -74,7 +74,8 @@ docs/content/references/framework/**
 
 lcov.info
 
-# full node
-~/sui/db
-full_node_db/
+# dbs & stuff
+1/
+10/
+full_node_db*
 .sparse

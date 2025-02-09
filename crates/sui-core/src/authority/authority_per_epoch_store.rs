@@ -4220,6 +4220,7 @@ impl AuthorityPerEpochStore {
             .set(self.epoch_open_time.elapsed().as_millis() as i64);
     }
 
+    #[allow(unused)]
     pub(crate) fn update_authenticator_state(&self, update: &AuthenticatorStateUpdate) {
         info!("Updating authenticator state: {:?}", update);
         for active_jwk in &update.new_active_jwks {

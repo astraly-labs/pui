@@ -554,7 +554,7 @@ impl StateAccumulator {
         });
         running_root.union(&checkpoint_acc);
         epoch_store.insert_running_root_accumulator(&checkpoint_seq_num, &running_root)?;
-        debug!(
+        tracing::info!(
             "Accumulated checkpoint {} to running root accumulator",
             checkpoint_seq_num,
         );

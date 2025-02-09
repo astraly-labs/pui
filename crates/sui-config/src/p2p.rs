@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use sui_types::{
     messages_checkpoint::{CheckpointDigest, CheckpointSequenceNumber},
     multiaddr::Multiaddr,
+    sunfish::SparseStatePredicates,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -187,6 +188,12 @@ pub struct StateSyncConfig {
     /// If unspecified, this will set to default value
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wait_interval_when_no_peer_to_sync_content_ms: Option<u64>,
+
+    /// Predicates configuration for sparse nodes
+    ///
+    /// If unspecified, this will set to default value and nothing will be filtered out
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sparse_state_predicates: Option<SparseStatePredicates>,
 }
 
 impl StateSyncConfig {

@@ -50,6 +50,7 @@
 use anemo::{types::PeerEvent, PeerId, Request, Response, Result};
 use futures::{stream::FuturesOrdered, FutureExt, StreamExt};
 use rand::Rng;
+use server::GetSparseStatePredicatesRequest;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{
     collections::{HashMap, VecDeque},
@@ -92,6 +93,7 @@ pub use server::GetCheckpointAvailabilityResponse;
 pub use server::GetCheckpointSummaryRequest;
 use sui_archival::reader::ArchiveReaderBalancer;
 use sui_storage::verify_checkpoint;
+use sui_types::sunfish::SparseStatePredicates;
 
 use self::{metrics::Metrics, server::CheckpointContentsDownloadLimitLayer};
 
@@ -144,6 +146,12 @@ pub struct PeerHeights {
 
     // The amount of time to wait before retry if there are no peers to sync content from.
     wait_interval_when_no_peer_to_sync_content: Duration,
+
+    /// Contains the sparse state predicates allowing us to filter the
+    /// transactions sent to the peer.
+    /// Only filled for Peers that are on the same chain than us - will be always
+    /// None for others (even if they're a sparse node).
+    peers_sparse_state_predicates: HashMap<PeerId, Option<SparseStatePredicates>>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -228,6 +236,25 @@ impl PeerHeights {
         }
     }
 
+    #[instrument(level = "debug", skip_all, fields(peer_id=?peer_id))]
+    pub fn insert_sparse_predicates(
+        &mut self,
+        peer_id: PeerId,
+        sparse_state_predicates: Option<SparseStatePredicates>,
+    ) {
+        use std::collections::hash_map::Entry;
+        debug!("Insert sparse state predicate");
+
+        match self.peers_sparse_state_predicates.entry(peer_id) {
+            Entry::Occupied(mut entry) => {
+                entry.insert(sparse_state_predicates);
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(sparse_state_predicates);
+            }
+        }
+    }
+
     pub fn mark_peer_as_not_on_same_chain(&mut self, peer_id: PeerId) {
         if let Some(info) = self.peers.get_mut(&peer_id) {
             info.on_same_chain_as_us = false;
@@ -277,6 +304,11 @@ impl PeerHeights {
 
     pub fn wait_interval_when_no_peer_to_sync_content(&self) -> Duration {
         self.wait_interval_when_no_peer_to_sync_content
+    }
+
+    #[allow(unused)]
+    pub fn is_sparse_node(&self, peer_id: PeerId) -> bool {
+        self.peers_sparse_state_predicates.contains_key(&peer_id)
     }
 }
 
@@ -404,6 +436,7 @@ where
         self.config.pinned_checkpoints.sort();
 
         let mut interval = tokio::time::interval(self.config.interval_period());
+
         let mut peer_events = {
             let (subscriber, peers) = self.network.subscribe().unwrap();
             for peer_id in peers {
@@ -411,6 +444,7 @@ where
             }
             subscriber
         };
+
         let (
             target_checkpoint_contents_sequence_sender,
             target_checkpoint_contents_sequence_receiver,
@@ -502,6 +536,7 @@ where
                 },
             }
 
+            // TODO(sunfish): Probably need to handle this too
             self.maybe_start_checkpoint_summary_sync_task();
             self.maybe_trigger_checkpoint_contents_sync_task(
                 &target_checkpoint_contents_sequence_sender,
@@ -623,6 +658,11 @@ where
             }
             Ok(PeerEvent::LostPeer(peer_id, _)) => {
                 self.peer_heights.write().unwrap().peers.remove(&peer_id);
+                self.peer_heights
+                    .write()
+                    .unwrap()
+                    .peers_sparse_state_predicates
+                    .remove(&peer_id);
             }
 
             Err(RecvError::Closed) => {
@@ -833,6 +873,7 @@ async fn get_latest_from_peer(
                 .write()
                 .unwrap()
                 .insert_peer_info(peer_id, info);
+
             info
         }
     };
@@ -842,11 +883,45 @@ async fn get_latest_from_peer(
         trace!(?info, "Peer {peer_id} not on same chain as us");
         return;
     }
+
+    // Check if the peer is a sparse node
+    let response = client
+        .get_sparse_state_predicates(Request::new(()))
+        .await
+        .map(Response::into_inner);
+
+    let sparse_state_predicates = match response {
+        Ok(predicates) => predicates,
+        Err(status) => {
+            trace!("get_sparse_state_predicates request failed: {status:?}");
+            return;
+        }
+    };
+
+    // Bail early if there's no sparse state predicates to update
+    if peer_heights
+        .read()
+        .unwrap()
+        .peers_sparse_state_predicates
+        .get(&peer_id)
+        .is_none()
+        && sparse_state_predicates.is_none()
+    {
+        trace!("Ignoring since state is None & response is None");
+        return;
+    }
+
+    peer_heights
+        .write()
+        .unwrap()
+        .insert_sparse_predicates(peer_id, sparse_state_predicates);
+
     let Some((highest_checkpoint, low_watermark)) =
         query_peer_for_latest_info(&mut client, timeout).await
     else {
         return;
     };
+
     peer_heights
         .write()
         .unwrap()
@@ -975,6 +1050,7 @@ where
     let mut current = store
         .get_highest_verified_checkpoint()
         .expect("store operation should not fail");
+
     if current.sequence_number() >= checkpoint.sequence_number() {
         return Err(anyhow::anyhow!(
             "target checkpoint {} is older than highest verified checkpoint {}",
@@ -988,6 +1064,8 @@ where
         peer_heights.clone(),
         PeerCheckpointRequestType::Summary,
     );
+
+    // TODO(sunfish): handle this for sparse nodes?
     // range of the next sequence_numbers to fetch
     let mut request_stream = (current.sequence_number().checked_add(1).unwrap()
         ..=*checkpoint.sequence_number())
@@ -1232,6 +1310,7 @@ async fn sync_checkpoint_contents<S>(
                         store
                             .update_highest_synced_checkpoint(&checkpoint)
                             .expect("store operation should not fail");
+
                         // We don't care if no one is listening as this is a broadcast channel
                         let _ = checkpoint_event_sender.send(checkpoint.clone());
                         tx_concurrency_remaining += checkpoint.network_total_transactions - highest_synced.network_total_transactions;
@@ -1365,6 +1444,7 @@ where
     S: WriteStore,
 {
     let digest = checkpoint.content_digest;
+
     if let Some(contents) = store
         .get_full_checkpoint_contents_by_sequence_number(*checkpoint.sequence_number())
         .or_else(|| store.get_full_checkpoint_contents(&digest))
@@ -1381,21 +1461,65 @@ where
             "requesting checkpoint contents from {}",
             peer.inner().peer_id(),
         );
-        let request = Request::new(digest).with_timeout(timeout);
-        if let Some(contents) = peer
-            .get_checkpoint_contents(request)
-            .await
-            .tap_err(|e| trace!("{e:?}"))
-            .ok()
-            .and_then(Response::into_inner)
-            .tap_none(|| trace!("peer unable to help sync"))
-        {
-            if contents.verify_digests(digest).is_ok() {
-                let verified_contents = VerifiedCheckpointContents::new_unchecked(contents.clone());
-                store
-                    .insert_checkpoint_contents(checkpoint, verified_contents)
-                    .expect("store operation should not fail");
-                return Some(contents);
+
+        if let Some(predicates) = store.get_sparse_state_predicates() {
+            let request = Request::new(GetSparseStatePredicatesRequest {
+                checkpoint_digest: digest,
+                sparse_state_predicates: predicates,
+            })
+            .with_timeout(timeout);
+            // TODO(sunfish): Add the algorithm to verify that the sparse state is correct.
+            if let Some((contents, missing_txs)) = peer
+                .get_sparse_checkpoint_contents(request)
+                .await
+                .tap_err(|e| trace!("{e:?}"))
+                .ok()
+                .and_then(Response::into_inner)
+                .tap_none(|| trace!("peer unable to help sync"))
+            {
+                if contents.verify_digests(digest, true).is_ok() {
+                    let verified_contents =
+                        VerifiedCheckpointContents::new_unchecked(contents.clone());
+                    store
+                        .insert_checkpoint_contents(checkpoint, verified_contents)
+                        .expect("store operation should not fail");
+
+                    // If the checkpoint miss some transactions dependencies, we retro-include them
+                    // by asking them from the peer
+                    // TODO(sunfish): What if the peer does not have the txs?
+                    if !missing_txs.is_empty() {
+                        // TODO(sunfish): implement this.
+                        // Few points being:
+                        // * how to easily retrieve the checkpoint corresponding to a tx digest?
+                        // * we will need to update an already stored checkpoint, so add the tx + the effects and
+                        //   update the checkpoint digest.
+
+                        // TODO(sunfish): If we retro-add transactions to checkpoints that already got synced,
+                        // do we need to re-execute them? For that we have a function that exists in the
+                        // checkpoint store: `reexecute_local_checkpoints`
+                    }
+
+                    return Some(contents);
+                }
+            }
+        } else {
+            let request = Request::new(digest).with_timeout(timeout);
+            if let Some(contents) = peer
+                .get_checkpoint_contents(request)
+                .await
+                .tap_err(|e| trace!("{e:?}"))
+                .ok()
+                .and_then(Response::into_inner)
+                .tap_none(|| trace!("peer unable to help sync"))
+            {
+                if contents.verify_digests(digest, false).is_ok() {
+                    let verified_contents =
+                        VerifiedCheckpointContents::new_unchecked(contents.clone());
+                    store
+                        .insert_checkpoint_contents(checkpoint, verified_contents)
+                        .expect("store operation should not fail");
+                    return Some(contents);
+                }
             }
         }
     }

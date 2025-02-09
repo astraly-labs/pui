@@ -462,7 +462,7 @@ impl SuiNode {
 
         let run_with_range = config.run_with_range;
         let is_validator = config.consensus_config().is_some();
-        let is_full_node = !is_validator;
+        let is_node = !is_validator;
         let prometheus_registry = registry_service.default_registry();
 
         info!(node =? config.protocol_public_key(),
@@ -614,9 +614,15 @@ impl SuiNode {
             cache_traits.clone(),
             committee_store.clone(),
             checkpoint_store.clone(),
+            config
+                .p2p_config
+                .state_sync
+                .clone()
+                .map(|config| config.sparse_state_predicates)
+                .flatten(),
         );
 
-        let index_store = if is_full_node && config.enable_index_processing {
+        let index_store = if is_node && config.enable_index_processing {
             info!("creating index store");
             Some(Arc::new(IndexStore::new(
                 config.db_path().join("indexes"),
@@ -631,7 +637,7 @@ impl SuiNode {
             None
         };
 
-        let rpc_index = if is_full_node && config.rpc().is_some_and(|rpc| rpc.enable_indexing()) {
+        let rpc_index = if is_node && config.rpc().is_some_and(|rpc| rpc.enable_indexing()) {
             Some(Arc::new(RpcIndexStore::new(
                 &config.db_path(),
                 &store,
@@ -792,7 +798,7 @@ impl SuiNode {
         let (end_of_epoch_channel, end_of_epoch_receiver) =
             broadcast::channel(config.end_of_epoch_broadcast_channel_capacity);
 
-        let transaction_orchestrator = if is_full_node && run_with_range.is_none() {
+        let transaction_orchestrator = if is_node && run_with_range.is_none() {
             Some(Arc::new(
                 TransactiondOrchestrator::new_with_auth_aggregator(
                     auth_agg.load_full(),
@@ -847,7 +853,7 @@ impl SuiNode {
         let connection_monitor_status = Arc::new(connection_monitor_status);
         let sui_node_metrics = Arc::new(SuiNodeMetrics::new(&registry_service.default_registry()));
 
-        let exex_manager = if is_full_node {
+        let exex_manager = if is_node {
             ExExLauncher::new(
                 Arc::new(state_sync_store),
                 state_sync_handle.clone(),
@@ -1232,6 +1238,10 @@ impl SuiNode {
             network
         };
 
+        // TODO(sunfish): Check if we need the discovery with a Sparse Node.
+        // Probably yes, but we should keep them in "memory" and only try to sync with one
+        // peer. If the peer is byzantine or isn't connected, we close the connection with it
+        // and proceed with another main peer from the available peers.
         let discovery_handle =
             discovery.start(p2p_network.clone(), config.network_key_pair().copy());
         let state_sync_handle = state_sync.start(p2p_network.clone());
@@ -1676,10 +1686,10 @@ impl SuiNode {
     pub async fn monitor_reconfiguration(self: Arc<Self>) -> Result<()> {
         let checkpoint_executor_metrics =
             CheckpointExecutorMetrics::new(&self.registry_service.default_registry());
-
         loop {
             let mut accumulator_guard = self.accumulator.lock().await;
             let accumulator = accumulator_guard.take().unwrap();
+
             let mut checkpoint_executor = CheckpointExecutor::new(
                 self.state_sync_handle.subscribe_to_synced_checkpoints(),
                 self.checkpoint_store.clone(),
@@ -1769,7 +1779,7 @@ impl SuiNode {
             debug_assert!(!latest_system_state.safe_mode());
 
             if let Err(err) = self.end_of_epoch_channel.send(latest_system_state.clone()) {
-                if self.state.is_fullnode(&cur_epoch_store) {
+                if self.state.is_node(&cur_epoch_store) {
                     warn!(
                         "Failed to send end of epoch notification to subscriber: {:?}",
                         err

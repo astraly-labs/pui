@@ -26,11 +26,12 @@ use sui_swarm_config::network_config::NetworkConfig;
 use sui_swarm_config::network_config_builder::ConfigBuilder;
 use sui_types::base_types::{AuthorityName, ObjectID, VersionNumber};
 use sui_types::crypto::AuthoritySignature;
-use sui_types::digests::ConsensusCommitDigest;
+use sui_types::digests::{ConsensusCommitDigest, TransactionDigest};
 use sui_types::messages_consensus::ConsensusDeterminedVersionAssignments;
 use sui_types::object::Object;
 use sui_types::storage::{ObjectStore, ReadStore, RpcStateReader};
 use sui_types::sui_system_state::epoch_start_sui_system_state::EpochStartSystemState;
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::transaction::EndOfEpochTransactionKind;
 use sui_types::{
     base_types::SuiAddress,
@@ -546,6 +547,21 @@ impl<T, V: store::SimulatorStore> ReadStore for Simulacrum<T, V> {
         _digest: &sui_types::messages_checkpoint::CheckpointContentsDigest,
     ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
         todo!()
+    }
+
+    fn get_sparse_checkpoint_contents(
+        &self,
+        _digest: &sui_types::digests::CheckpointContentsDigest,
+        _sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(
+        sui_types::messages_checkpoint::FullCheckpointContents,
+        Vec<TransactionDigest>,
+    )> {
+        todo!()
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        None
     }
 }
 

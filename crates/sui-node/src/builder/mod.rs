@@ -1,19 +1,21 @@
+use crate::SuiNode;
+use crate::SuiNodeHandle;
+
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::SuiNode;
-use crate::SuiNodeHandle;
 use sui_config::Config;
 use sui_config::NodeConfig;
 use sui_core::runtime::SuiRuntimes;
 use sui_exex::BoxedLaunchExEx;
 use sui_exex::ExExContext;
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::supported_protocol_versions::SupportedProtocolVersions;
 use tracing::info;
 
 pub struct NodeBuilder {
-    config: Option<NodeConfig>,
+    pub config: Option<NodeConfig>,
     exexes: Vec<(String, Box<dyn BoxedLaunchExEx>)>,
 }
 
@@ -34,22 +36,33 @@ impl NodeBuilder {
         cfg.supported_protocol_versions = Some(SupportedProtocolVersions::SYSTEM_DEFAULT);
 
         self.config = Some(cfg);
-
         self
     }
 
-    pub fn with_exex<F, Fut, E>(mut self, name: String, exex: F) -> Self
+    pub fn with_exex<F, Fut, E>(mut self, name: &str, exex: F) -> Self
     where
         F: FnOnce(ExExContext) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = anyhow::Result<E>> + Send + 'static,
         E: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
-        self.exexes.push((name, Box::new(exex)));
+        self.exexes.push((String::from(name), Box::new(exex)));
+        self
+    }
+
+    pub fn and_override_sparse_config(
+        mut self,
+        sparse_state_config: SparseStatePredicates,
+    ) -> Self {
+        if let Some(ref mut config) = self.config {
+            if let Some(ref mut state_sync_config) = config.p2p_config.state_sync {
+                state_sync_config.sparse_state_predicates = Some(sparse_state_config);
+            }
+        }
         self
     }
 
     pub async fn launch(self) -> anyhow::Result<(SuiNodeHandle, Arc<SuiRuntimes>)> {
-        info!("Starting Node...");
+        info!("Starting Sui Node...");
         let cfg = self
             .config
             .as_ref()

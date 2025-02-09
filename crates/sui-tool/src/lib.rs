@@ -593,8 +593,12 @@ fn start_summary_sync(
         let store =
             AuthorityStore::open_no_genesis(perpetual_db, usize::MAX, false, &Registry::default())?;
         let cache_traits = build_execution_cache_from_env(&Registry::default(), &store);
-        let state_sync_store =
-            RocksDbStore::new(cache_traits, committee_store, checkpoint_store.clone());
+        let state_sync_store = RocksDbStore::new(
+            cache_traits,
+            committee_store,
+            checkpoint_store.clone(),
+            None,
+        );
         // Only insert the genesis checkpoint if the DB is empty and doesn't have it already
         if checkpoint_store
             .get_checkpoint_by_digest(genesis.checkpoint().digest())

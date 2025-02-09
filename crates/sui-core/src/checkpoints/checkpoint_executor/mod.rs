@@ -34,12 +34,14 @@ use sui_config::node::{CheckpointExecutorConfig, RunWithRange};
 use sui_exex::{ExExManagerHandle, ExExNotification};
 use sui_macros::{fail_point, fail_point_async};
 use sui_types::accumulator::Accumulator;
+use sui_types::base_types::ExecutionData;
 use sui_types::crypto::RandomnessRound;
 use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
 use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::full_checkpoint_content::CheckpointData;
 use sui_types::inner_temporary_store::PackageStoreWithFallback;
 use sui_types::message_envelope::Message;
+use sui_types::messages_checkpoint::FullCheckpointContents;
 use sui_types::transaction::TransactionKind;
 use sui_types::{
     base_types::{ExecutionDigests, TransactionDigest, TransactionEffectsDigest},
@@ -152,7 +154,7 @@ pub struct CheckpointExecutor {
     tx_manager: Arc<TransactionManager>,
     accumulator: Arc<StateAccumulator>,
     backpressure_manager: Arc<BackpressureManager>,
-    config: CheckpointExecutorConfig,
+    executor_config: CheckpointExecutorConfig,
     metrics: Arc<CheckpointExecutorMetrics>,
     subscription_service_checkpoint_sender: Option<tokio::sync::mpsc::Sender<CheckpointData>>,
     exex_manager: Option<ExExManagerHandle>,
@@ -166,7 +168,7 @@ impl CheckpointExecutor {
         sync_state_handle: Option<sui_network::state_sync::Handle>,
         accumulator: Arc<StateAccumulator>,
         backpressure_manager: Arc<BackpressureManager>,
-        config: CheckpointExecutorConfig,
+        executor_config: CheckpointExecutorConfig,
         metrics: Arc<CheckpointExecutorMetrics>,
         subscription_service_checkpoint_sender: Option<tokio::sync::mpsc::Sender<CheckpointData>>,
         exex_manager: Option<ExExManagerHandle>,
@@ -181,7 +183,7 @@ impl CheckpointExecutor {
             tx_manager: state.transaction_manager().clone(),
             accumulator,
             backpressure_manager,
-            config,
+            executor_config,
             metrics,
             subscription_service_checkpoint_sender,
             exex_manager,
@@ -526,7 +528,7 @@ impl CheckpointExecutor {
         };
 
         while *next_to_schedule <= *latest_synced_checkpoint.sequence_number()
-            && pending.len() < self.config.checkpoint_execution_max_concurrency
+            && pending.len() < self.executor_config.checkpoint_execution_max_concurrency
         {
             let checkpoint = self
                 .checkpoint_store
@@ -578,8 +580,8 @@ impl CheckpointExecutor {
         );
 
         let metrics = self.metrics.clone();
-        let local_execution_timeout_sec = self.config.local_execution_timeout_sec;
-        let data_ingestion_dir = self.config.data_ingestion_dir.clone();
+        let local_execution_timeout_sec = self.executor_config.local_execution_timeout_sec;
+        let data_ingestion_dir = self.executor_config.data_ingestion_dir.clone();
         let checkpoint_store = self.checkpoint_store.clone();
         let object_cache_reader = self.object_cache_reader.clone();
         let transaction_cache_reader = self.transaction_cache_reader.clone();
@@ -593,6 +595,7 @@ impl CheckpointExecutor {
 
         self.notify_exex_checkpoint_synced(checkpoint.sequence_number());
 
+        // TODO(sunfish): sniff here
         pending.push_back(spawn_monitored_task!(async move {
             let epoch_store = epoch_store.clone();
             let (tx_digests, checkpoint_acc, checkpoint_data) = loop {
@@ -668,8 +671,8 @@ impl CheckpointExecutor {
             epoch_store.clone(),
             self.tx_manager.clone(),
             self.accumulator.clone(),
-            self.config.local_execution_timeout_sec,
-            self.config.data_ingestion_dir.clone(),
+            self.executor_config.local_execution_timeout_sec,
+            self.executor_config.data_ingestion_dir.clone(),
         )
         .await;
     }
@@ -753,7 +756,7 @@ impl CheckpointExecutor {
                         checkpoint.clone(),
                         self.accumulator.clone(),
                         effects,
-                        self.config.data_ingestion_dir.clone(),
+                        self.executor_config.data_ingestion_dir.clone(),
                     )
                     .await
                     .expect("Finalizing checkpoint cannot fail");
@@ -870,9 +873,11 @@ async fn execute_checkpoint(
     Option<Accumulator>,
     Option<CheckpointData>,
 )> {
-    debug!("Preparing checkpoint for execution",);
+    info!(
+        "Preparing checkpoint {} for execution",
+        checkpoint.sequence_number
+    );
     let prepare_start = Instant::now();
-
     // this function must guarantee that all transactions in the checkpoint are executed before it
     // returns. This invariant is enforced in two phases:
     // - First, we filter out any already executed transactions from the checkpoint in
@@ -888,7 +893,12 @@ async fn execute_checkpoint(
         );
 
     let tx_count = execution_digests.len();
-    debug!("Number of transactions in the checkpoint: {:?}", tx_count);
+
+    info!(
+        "Number of transactions in the checkpoint #{}: {:?}",
+        checkpoint.sequence_number, tx_count
+    );
+
     metrics
         .checkpoint_transaction_count
         .observe(tx_count as f64);
@@ -1156,7 +1166,8 @@ fn get_unexecuted_transactions(
     Vec<RandomnessRound>,
 ) {
     let checkpoint_sequence = checkpoint.sequence_number();
-    let full_contents = checkpoint_store
+
+    let full_checkpoint_contents: Option<FullCheckpointContents> = checkpoint_store
         .get_full_checkpoint_contents_by_sequence_number(*checkpoint_sequence)
         .expect("Failed to get checkpoint contents from store")
         .tap_some(|_| {
@@ -1174,12 +1185,13 @@ fn get_unexecuted_transactions(
         })
         .into_inner();
 
-    let full_contents_txns = full_contents.map(|c| {
-        c.into_iter()
-            .zip(execution_digests.iter())
-            .map(|(txn, digests)| (digests.transaction, txn))
-            .collect::<HashMap<_, _>>()
-    });
+    let full_contents_txns: Option<HashMap<TransactionDigest, ExecutionData>> =
+        full_checkpoint_contents.map(|c| {
+            c.into_iter()
+                .zip(execution_digests.iter())
+                .map(|(txn, digests)| (digests.transaction, txn))
+                .collect::<HashMap<_, _>>()
+        });
 
     // Remove the change epoch transaction so that we can special case its execution.
     checkpoint.end_of_epoch_data.as_ref().tap_some(|_| {

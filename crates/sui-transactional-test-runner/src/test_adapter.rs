@@ -72,6 +72,7 @@ use sui_types::messages_consensus::ConsensusDeterminedVersionAssignments;
 use sui_types::object::bounded_visitor::BoundedVisitor;
 use sui_types::storage::ReadStore;
 use sui_types::storage::{ObjectStore, RpcStateReader};
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::transaction::Command;
 use sui_types::transaction::ProgrammableTransaction;
 use sui_types::utils::to_sender_signed_transaction_with_multi_signers;
@@ -2510,5 +2511,20 @@ impl ReadStore for SuiTestAdapter {
         digest: &CheckpointContentsDigest,
     ) -> Option<sui_types::messages_checkpoint::FullCheckpointContents> {
         self.executor.get_full_checkpoint_contents(digest)
+    }
+
+    fn get_sparse_checkpoint_contents(
+        &self,
+        _digest: &CheckpointContentsDigest,
+        _sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(
+        sui_types::messages_checkpoint::FullCheckpointContents,
+        Vec<TransactionDigest>,
+    )> {
+        None
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<sui_types::sunfish::SparseStatePredicates> {
+        None
     }
 }

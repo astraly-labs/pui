@@ -12,6 +12,7 @@ use crate::messages_checkpoint::{
     VerifiedCheckpointContents,
 };
 use crate::storage::{ExExStore, ReadStore, WriteStore};
+use crate::sunfish::SparseStatePredicates;
 use crate::transaction::VerifiedTransaction;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -94,11 +95,23 @@ impl ReadStore for SharedInMemoryStore {
         })
     }
 
+    fn get_sparse_checkpoint_contents(
+        &self,
+        _digest: &CheckpointContentsDigest,
+        _sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
+        todo!("SUNFISH: Implement this!")
+    }
+
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {
         self.inner()
             .get_committee_by_epoch(epoch)
             .cloned()
             .map(Arc::new)
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<crate::sunfish::SparseStatePredicates> {
+        None
     }
 
     fn get_transaction(&self, digest: &TransactionDigest) -> Option<Arc<VerifiedTransaction>> {
@@ -502,8 +515,21 @@ impl ReadStore for SingleCheckpointSharedInMemoryStore {
         self.0.get_full_checkpoint_contents(digest)
     }
 
+    fn get_sparse_checkpoint_contents(
+        &self,
+        digest: &CheckpointContentsDigest,
+        sparse_state_predicates: SparseStatePredicates,
+    ) -> Option<(FullCheckpointContents, Vec<TransactionDigest>)> {
+        self.0
+            .get_sparse_checkpoint_contents(digest, sparse_state_predicates)
+    }
+
     fn get_committee(&self, epoch: EpochId) -> Option<Arc<Committee>> {
         self.0.get_committee(epoch)
+    }
+
+    fn get_sparse_state_predicates(&self) -> Option<crate::sunfish::SparseStatePredicates> {
+        self.0.get_sparse_state_predicates()
     }
 
     fn get_transaction(&self, digest: &TransactionDigest) -> Option<Arc<VerifiedTransaction>> {

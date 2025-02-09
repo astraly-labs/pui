@@ -8,6 +8,8 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
+use sui_types::digests::TransactionDigest;
+use sui_types::sunfish::SparseStatePredicates;
 use sui_types::{
     digests::{CheckpointContentsDigest, CheckpointDigest},
     messages_checkpoint::{
@@ -29,6 +31,12 @@ pub enum GetCheckpointSummaryRequest {
 pub struct GetCheckpointAvailabilityResponse {
     pub(crate) highest_synced_checkpoint: Checkpoint,
     pub(crate) lowest_available_checkpoint: CheckpointSequenceNumber,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GetSparseStatePredicatesRequest {
+    pub(crate) checkpoint_digest: CheckpointContentsDigest,
+    pub(crate) sparse_state_predicates: SparseStatePredicates,
 }
 
 pub struct Server<S> {
@@ -126,6 +134,26 @@ where
     ) -> Result<Response<Option<FullCheckpointContents>>, Status> {
         let contents = self.store.get_full_checkpoint_contents(request.inner());
         Ok(Response::new(contents))
+    }
+
+    async fn get_sparse_checkpoint_contents(
+        &self,
+        request: Request<GetSparseStatePredicatesRequest>,
+    ) -> Result<Response<Option<(FullCheckpointContents, Vec<TransactionDigest>)>>, Status> {
+        let inner_request = request.inner();
+        let contents = self.store.get_sparse_checkpoint_contents(
+            &inner_request.checkpoint_digest,
+            inner_request.sparse_state_predicates.clone(),
+        );
+        Ok(Response::new(contents))
+    }
+
+    async fn get_sparse_state_predicates(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<Option<SparseStatePredicates>>, Status> {
+        let maybe_predicates = self.store.get_sparse_state_predicates();
+        Ok(Response::new(maybe_predicates))
     }
 }
 

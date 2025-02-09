@@ -184,10 +184,28 @@ fn build_anemo_services(out_dir: &Path) {
         )
         .method(
             anemo_build::manual::Method::builder()
+                .name("get_sparse_checkpoint_contents")
+                .route_name("GetSparseCheckpointContents")
+                .request_type("crate::state_sync::GetSparseStatePredicatesRequest")
+                .response_type("Option<(sui_types::messages_checkpoint::FullCheckpointContents, Vec<sui_types::digests::TransactionDigest>)>")
+                .codec_path(codec_path)
+                .build(),
+        )
+        .method(
+            anemo_build::manual::Method::builder()
                 .name("get_checkpoint_availability")
                 .route_name("GetCheckpointAvailability")
                 .request_type("()")
                 .response_type("crate::state_sync::GetCheckpointAvailabilityResponse")
+                .codec_path(codec_path)
+                .build(),
+        )
+        .method(
+            anemo_build::manual::Method::builder()
+                .name("get_sparse_state_predicates")
+                .route_name("GetSparseStatePredicates")
+                .request_type("()")
+                .response_type("Option<sui_types::sunfish::SparseStatePredicates>")
                 .codec_path(codec_path)
                 .build(),
         )
