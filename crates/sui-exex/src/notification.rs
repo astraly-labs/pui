@@ -14,6 +14,9 @@ pub enum ExExNotification {
     CheckpointSynced {
         checkpoint_number: CheckpointSequenceNumber,
     },
+    CheckpointExecuted {
+        checkpoint_number: CheckpointSequenceNumber,
+    },
     HasReachedTip,
 }
 
