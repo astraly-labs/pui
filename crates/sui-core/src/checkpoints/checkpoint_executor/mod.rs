@@ -327,7 +327,7 @@ impl CheckpointExecutor {
                     self.process_executed_checkpoint(&epoch_store, &checkpoint, checkpoint_acc, checkpoint_data, &tx_digests).await;
                     self.backpressure_manager.update_highest_executed_checkpoint(*checkpoint.sequence_number());
                     highest_executed = Some(checkpoint.clone());
-
+                    self.notify_exex_checkpoint_executed(checkpoint.sequence_number());
                     // Estimate TPS every 10k transactions or 30 sec
                     let elapsed = now_time.elapsed().as_millis();
                     let current_transaction_num =  highest_executed.as_ref().map(|c| c.network_total_transactions).unwrap_or(0);
@@ -829,6 +829,15 @@ impl CheckpointExecutor {
             return;
         };
         let _ = manager.send(ExExNotification::CheckpointSynced {
+            checkpoint_number: *checkpoint_seq,
+        });
+    }
+
+    fn notify_exex_checkpoint_executed(&self, checkpoint_seq: &CheckpointSequenceNumber) {
+        let Some(manager) = self.exex_manager.as_ref() else {
+            return;
+        };
+        let _ = manager.send(ExExNotification::CheckpointExecuted {
             checkpoint_number: *checkpoint_seq,
         });
     }
