@@ -29,7 +29,11 @@ async fn main() -> Result<(), anyhow::Error> {
         ..
     } = config;
 
-    let context = create_wallet_context(wallet_client_timeout_secs, sui_config_dir()?)?;
+    let context = create_wallet_context(
+        wallet_client_timeout_secs,
+        sui_config_dir()?,
+        &config.rpc_url,
+    ).await?;
 
     let max_concurrency = match env::var("MAX_CONCURRENCY") {
         Ok(val) => val.parse::<usize>().unwrap(),

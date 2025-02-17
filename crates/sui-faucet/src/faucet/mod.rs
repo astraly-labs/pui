@@ -151,6 +151,12 @@ pub struct FaucetConfig {
     /// used for authenticated mode.
     #[clap(long, default_value_t = 60)]
     pub rate_limiter_cleanup_interval_secs: u64,
+
+    /// The URL of the Sui RPC endpoint.
+    ///
+    /// This is used to get the current epoch for the Sui blockchain.
+    #[clap(long, env = "SUI_RPC_URL", default_value = "http://pui.rpc.devnet.pragma.build:9000")]
+    pub rpc_url: String,
 }
 
 impl Default for FaucetConfig {
@@ -174,6 +180,7 @@ impl Default for FaucetConfig {
             replenish_quota_interval_ms: 10,
             reset_time_interval_secs: 3600 * 12,
             rate_limiter_cleanup_interval_secs: 60,
+            rpc_url: "http://pui.rpc.devnet.pragma.build:9000".to_string(),
         }
     }
 }

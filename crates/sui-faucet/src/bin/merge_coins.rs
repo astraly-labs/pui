@@ -6,33 +6,22 @@ use sui_config::{sui_config_dir, SUI_CLIENT_CONFIG};
 use sui_faucet::FaucetError;
 use sui_json_rpc_types::SuiTransactionBlockResponseOptions;
 use sui_keys::keystore::AccountKeystore;
-use sui_sdk::wallet_context::WalletContext;
+use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
 use sui_types::quorum_driver_types::ExecuteTransactionRequestType;
 use sui_types::{base_types::ObjectID, gas_coin::GasCoin, transaction::Transaction};
 use tracing::info;
 
+const DEFAULT_RPC_URL: &str = "http://pui.rpc.devnet.pragma.build:9000";
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let mut wallet = create_wallet_context(60)?;
+    let rpc_url = std::env::var("SUI_RPC_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.to_string());
+    let mut wallet = create_wallet_context(60, &rpc_url).await?;
     let active_address = wallet
         .active_address()
         .map_err(|err| FaucetError::Wallet(err.to_string()))?;
     println!("SimpleFaucet::new with active address: {active_address}");
-
-    // Example scripts
-    // merge_coins(
-    //     "0x0215b800acc47d80a50741f0eecfa507fc2c21f5a9aa6140a219686ad20d7f4c",
-    //     wallet,
-    // )
-    // .await?;
-
-    // split_coins_equally(
-    //     "0xd42a75242975780037e170486540f28ab3c9be07dbb1f6f2a9430ad268e3b1d1",
-    //     wallet,
-    //     1000,
-    // )
-    // .await?;
-
+    println!("Using RPC URL: {}", rpc_url);
     Ok(())
 }
 
@@ -123,8 +112,14 @@ async fn _merge_coins(gas_coin: &str, mut wallet: WalletContext) -> Result<(), a
     Ok(())
 }
 
-pub fn create_wallet_context(timeout_secs: u64) -> Result<WalletContext, anyhow::Error> {
+pub async fn create_wallet_context(timeout_secs: u64, rpc_url: &str) -> Result<WalletContext, anyhow::Error> {
     let wallet_conf = sui_config_dir()?.join(SUI_CLIENT_CONFIG);
     info!("Initialize wallet from config path: {:?}", wallet_conf);
+    info!("Using RPC URL: {}", rpc_url);
+    let sui_client = SuiClientBuilder::default()
+        .request_timeout(Duration::from_secs(timeout_secs))
+        .max_concurrent_requests(1000)
+        .build(rpc_url)
+        .await?;
     WalletContext::new(&wallet_conf, Some(Duration::from_secs(timeout_secs)), None)
 }
