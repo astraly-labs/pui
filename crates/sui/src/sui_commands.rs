@@ -812,7 +812,7 @@ async fn start(
         }
         let faucet_wal = config_dir.join("faucet.wal");
         let simple_faucet = SimpleFaucet::new(
-            create_wallet_context(config.wallet_client_timeout_secs, config_dir)?,
+            create_wallet_context(config.wallet_client_timeout_secs, config_dir, &config.rpc_url).await?,
             &prometheus_registry,
             faucet_wal.as_path(),
             config.clone(),

@@ -24,7 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 use sui_config::SUI_CLIENT_CONFIG;
-use sui_sdk::wallet_context::WalletContext;
+use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
 use tower::ServiceBuilder;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::GlobalKeyExtractor, GovernorLayer,
@@ -529,16 +529,23 @@ async fn request_gas(
     }
 }
 
-pub fn create_wallet_context(
+pub async fn create_wallet_context(
     timeout_secs: u64,
     config_dir: PathBuf,
+    rpc_url: &str,
 ) -> Result<WalletContext, anyhow::Error> {
     let wallet_conf = config_dir.join(SUI_CLIENT_CONFIG);
     info!("Initialize wallet from config path: {:?}", wallet_conf);
+    info!("Using RPC URL: {}", rpc_url);
+    let _sui_client = SuiClientBuilder::default()
+        .request_timeout(Duration::from_secs(timeout_secs))
+        .max_concurrent_requests(1000)
+        .build(rpc_url)
+        .await?;
     WalletContext::new(
         &wallet_conf,
         Some(Duration::from_secs(timeout_secs)),
-        Some(1000),
+        None
     )
 }
 
